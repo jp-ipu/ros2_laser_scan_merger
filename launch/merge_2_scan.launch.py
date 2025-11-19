@@ -5,20 +5,23 @@
 # This launch file starts the laser scan merger node and the pointcloud to
 # laserscan conversion node with configurable parameters.
 #
+# The node now supports N laser scanners (configured via params file or args)
+#
 # Usage:
 #   ros2 launch ros2_laser_scan_merger merge_2_scan.launch.py
 #
 # Optional arguments:
 #   params_file:=<path>        - Path to custom parameters file
+#   num_lasers:=<N>            - Number of laser scanners to merge (default: 2)
 #   use_sim_time:=<true/false> - Enable/disable simulation time
 #   output_frame:=<frame_id>   - Output frame ID for merged cloud
-#   scan_topic_1:=<topic>      - First laser scan input topic
-#   scan_topic_2:=<topic>      - Second laser scan input topic
 #   cloud_topic:=<topic>       - Merged point cloud output topic
-#   enable_respawn:=<true/false> - Enable node auto-restart on failure
+#
+# Example with 3 lasers:
+#   ros2 launch ros2_laser_scan_merger merge_2_scan.launch.py num_lasers:=3
 #
 # Created by: Michael Jonathan (mich1342)
-# Modified for ROS2 Jazzy best practices
+# Modified for ROS2 Jazzy best practices with N-laser support
 ################################################################################
 
 import os
@@ -31,7 +34,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    """Generate launch description with configurable parameters."""
+    """Generate launch description with configurable parameters for N lasers."""
 
     # Get package directory
     pkg_dir = get_package_share_directory('ros2_laser_scan_merger')
@@ -49,6 +52,12 @@ def generate_launch_description():
         description='Path to the ROS2 parameters YAML file'
     )
 
+    num_lasers_arg = DeclareLaunchArgument(
+        'num_lasers',
+        default_value='2',
+        description='Number of laser scanners to merge (must match params file configuration)'
+    )
+
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
         default_value='false',
@@ -59,18 +68,6 @@ def generate_launch_description():
         'output_frame',
         default_value='laser',
         description='Frame ID for the merged point cloud output'
-    )
-
-    scan_topic_1_arg = DeclareLaunchArgument(
-        'scan_topic_1',
-        default_value='/lidar_1/scan',
-        description='First laser scan input topic'
-    )
-
-    scan_topic_2_arg = DeclareLaunchArgument(
-        'scan_topic_2',
-        default_value='/lidar_2/scan',
-        description='Second laser scan input topic'
     )
 
     cloud_topic_arg = DeclareLaunchArgument(
@@ -96,10 +93,9 @@ def generate_launch_description():
     # =========================================================================
 
     params_file = LaunchConfiguration('params_file')
+    num_lasers = LaunchConfiguration('num_lasers')
     use_sim_time = LaunchConfiguration('use_sim_time')
     output_frame = LaunchConfiguration('output_frame')
-    scan_topic_1 = LaunchConfiguration('scan_topic_1')
-    scan_topic_2 = LaunchConfiguration('scan_topic_2')
     cloud_topic = LaunchConfiguration('cloud_topic')
     enable_respawn = LaunchConfiguration('enable_respawn')
     respawn_delay = LaunchConfiguration('respawn_delay')
@@ -118,9 +114,8 @@ def generate_launch_description():
             params_file,
             {
                 'use_sim_time': use_sim_time,
+                'num_lasers': num_lasers,
                 'pointCloutFrameId': output_frame,
-                'scanTopic1': scan_topic_1,
-                'scanTopic2': scan_topic_2,
                 'pointCloudTopic': cloud_topic,
             }
         ],
@@ -165,10 +160,9 @@ def generate_launch_description():
     return LaunchDescription([
         # Launch arguments
         params_file_arg,
+        num_lasers_arg,
         use_sim_time_arg,
         output_frame_arg,
-        scan_topic_1_arg,
-        scan_topic_2_arg,
         cloud_topic_arg,
         enable_respawn_arg,
         respawn_delay_arg,

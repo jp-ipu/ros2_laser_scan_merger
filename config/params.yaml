@@ -4,6 +4,8 @@
 # This file configures the laser scan merger node which combines multiple
 # laser scan sources into a single merged point cloud and laser scan output.
 #
+# The node now supports N laser scans (configurable via num_lasers parameter)
+#
 # For ROS2 Jazzy - Best Practices Format
 ################################################################################
 
@@ -15,65 +17,97 @@
     use_sim_time: false  # Set to true when using simulation time (e.g., from bag files)
 
     # ============================================================================
+    # Number of Laser Scanners
+    # ============================================================================
+    # Set this to the number of laser scanners you want to merge
+    # The node will look for parameters laser0, laser1, laser2, etc.
+    num_lasers: 2
+
+    # ============================================================================
     # Topic Configuration
     # ============================================================================
-    # Input laser scan topics to merge
-    scanTopic1: /lidar_1/scan
-    scanTopic2: /lidar_2/scan
-
     # Output topics
     pointCloudTopic: cloud_in        # Merged point cloud output topic
     pointCloutFrameId: laser         # Frame ID for the merged point cloud
 
     # ============================================================================
-    # Laser 1 Configuration
+    # Laser Scanner 0 Configuration
     # ============================================================================
-    # Enable/disable laser 1 in the merged output
-    show1: true
+    laser0:
+      # Topic Configuration
+      topic: /lidar_1/scan            # Input laser scan topic
 
-    # Spatial Transform (position in meters)
-    laser1XOff: -0.3      # X offset from reference frame
-    laser1YOff: -0.475    # Y offset from reference frame
-    laser1ZOff: 0.176     # Z offset from reference frame
-    laser1Alpha: 0.0      # Rotation angle in degrees
+      # Enable/disable this laser in the merged output
+      show: true
 
-    # Angular Range (in degrees)
-    laser1AngleMin: -4.0   # Minimum angle to include from laser 1
-    laser1AngleMax: 94.0   # Maximum angle to include from laser 1
+      # Spatial Transform (position in meters)
+      x_offset: -0.3                  # X offset from reference frame
+      y_offset: -0.475                # Y offset from reference frame
+      z_offset: 0.176                 # Z offset from reference frame
+      alpha: 0.0                      # Rotation angle in degrees
 
-    # Processing Flags
-    flip1: false          # Flip the laser scan data
-    inverse1: true        # Inverse the angle direction
+      # Angular Range (in degrees)
+      angle_min: -4.0                 # Minimum angle to include
+      angle_max: 94.0                 # Maximum angle to include
 
-    # Visualization Color (RGB 0-255)
-    laser1R: 255          # Red channel
-    laser1G: 0            # Green channel
-    laser1B: 0            # Blue channel (displays as red)
+      # Processing Flags
+      flip: false                     # Flip the laser scan data
+      inverse: true                   # Inverse the angle direction
+
+      # Visualization Color (RGB 0-255)
+      r: 255                          # Red channel
+      g: 0                            # Green channel
+      b: 0                            # Blue channel (displays as red)
 
     # ============================================================================
-    # Laser 2 Configuration
+    # Laser Scanner 1 Configuration
     # ============================================================================
-    # Enable/disable laser 2 in the merged output
-    show2: true
+    laser1:
+      # Topic Configuration
+      topic: /lidar_2/scan            # Input laser scan topic
 
-    # Spatial Transform (position in meters)
-    laser2XOff: 0.3       # X offset from reference frame
-    laser2YOff: 0.475     # Y offset from reference frame
-    laser2ZOff: 0.176     # Z offset from reference frame
-    laser2Alpha: 180.0    # Rotation angle in degrees
+      # Enable/disable this laser in the merged output
+      show: true
 
-    # Angular Range (in degrees)
-    laser2AngleMin: 0.0    # Minimum angle to include from laser 2
-    laser2AngleMax: 94.0   # Maximum angle to include from laser 2
+      # Spatial Transform (position in meters)
+      x_offset: 0.3                   # X offset from reference frame
+      y_offset: 0.475                 # Y offset from reference frame
+      z_offset: 0.176                 # Z offset from reference frame
+      alpha: 180.0                    # Rotation angle in degrees
 
-    # Processing Flags
-    flip2: false          # Flip the laser scan data
-    inverse2: true        # Inverse the angle direction
+      # Angular Range (in degrees)
+      angle_min: 0.0                  # Minimum angle to include
+      angle_max: 94.0                 # Maximum angle to include
 
-    # Visualization Color (RGB 0-255)
-    laser2R: 0            # Red channel
-    laser2G: 0            # Green channel
-    laser2B: 255          # Blue channel (displays as blue)
+      # Processing Flags
+      flip: false                     # Flip the laser scan data
+      inverse: true                   # Inverse the angle direction
+
+      # Visualization Color (RGB 0-255)
+      r: 0                            # Red channel
+      g: 0                            # Green channel
+      b: 255                          # Blue channel (displays as blue)
+
+    # ============================================================================
+    # Example: Laser Scanner 2 Configuration (if you have 3+ lasers)
+    # ============================================================================
+    # Uncomment and configure additional lasers as needed
+    # Remember to set num_lasers to 3 or higher!
+    #
+    # laser2:
+    #   topic: /lidar_3/scan
+    #   show: true
+    #   x_offset: 0.0
+    #   y_offset: 0.0
+    #   z_offset: 0.2
+    #   alpha: 90.0
+    #   angle_min: -90.0
+    #   angle_max: 90.0
+    #   flip: false
+    #   inverse: false
+    #   r: 0
+    #   g: 255
+    #   b: 0
 
     # ============================================================================
     # QoS Settings
@@ -138,9 +172,12 @@
 
 ################################################################################
 # Notes:
+# - The node now supports N laser scanners (set via num_lasers parameter)
+# - Each laser is configured with a laser<N> namespace (laser0, laser1, etc.)
 # - Angle values for laser scanners are in degrees
 # - Angle values for the conversion node are in radians
 # - Adjust the height filtering (min_height/max_height) to filter out
 #   ground plane or ceiling points as needed
 # - The merged output will be in the frame specified by pointCloutFrameId
+# - To add more lasers: increase num_lasers and add laser2, laser3, etc.
 ################################################################################

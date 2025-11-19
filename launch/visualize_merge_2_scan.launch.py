@@ -5,21 +5,25 @@
 # This launch file starts the laser scan merger node, pointcloud to laserscan
 # conversion node, and RViz for visualization with configurable parameters.
 #
+# The node now supports N laser scanners (configured via params file or args)
+#
 # Usage:
 #   ros2 launch ros2_laser_scan_merger visualize_merge_2_scan.launch.py
 #
 # Optional arguments:
 #   params_file:=<path>        - Path to custom parameters file
+#   num_lasers:=<N>            - Number of laser scanners to merge (default: 2)
 #   rviz_config:=<path>        - Path to custom RViz configuration file
 #   use_sim_time:=<true/false> - Enable/disable simulation time
 #   output_frame:=<frame_id>   - Output frame ID for merged cloud
-#   scan_topic_1:=<topic>      - First laser scan input topic
-#   scan_topic_2:=<topic>      - Second laser scan input topic
 #   cloud_topic:=<topic>       - Merged point cloud output topic
 #   enable_rviz:=<true/false>  - Enable/disable RViz visualization
 #
+# Example with 3 lasers:
+#   ros2 launch ros2_laser_scan_merger visualize_merge_2_scan.launch.py num_lasers:=3
+#
 # Created by: Michael Jonathan (mich1342)
-# Modified for ROS2 Jazzy best practices
+# Modified for ROS2 Jazzy best practices with N-laser support
 ################################################################################
 
 import os
@@ -32,7 +36,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    """Generate launch description with visualization support."""
+    """Generate launch description with visualization support for N lasers."""
 
     # Get package directory
     pkg_dir = get_package_share_directory('ros2_laser_scan_merger')
@@ -51,6 +55,12 @@ def generate_launch_description():
         description='Path to the ROS2 parameters YAML file'
     )
 
+    num_lasers_arg = DeclareLaunchArgument(
+        'num_lasers',
+        default_value='2',
+        description='Number of laser scanners to merge (must match params file configuration)'
+    )
+
     rviz_config_arg = DeclareLaunchArgument(
         'rviz_config',
         default_value=default_rviz_config,
@@ -67,18 +77,6 @@ def generate_launch_description():
         'output_frame',
         default_value='laser',
         description='Frame ID for the merged point cloud output'
-    )
-
-    scan_topic_1_arg = DeclareLaunchArgument(
-        'scan_topic_1',
-        default_value='/lidar_1/scan',
-        description='First laser scan input topic'
-    )
-
-    scan_topic_2_arg = DeclareLaunchArgument(
-        'scan_topic_2',
-        default_value='/lidar_2/scan',
-        description='Second laser scan input topic'
     )
 
     cloud_topic_arg = DeclareLaunchArgument(
@@ -104,11 +102,10 @@ def generate_launch_description():
     # =========================================================================
 
     params_file = LaunchConfiguration('params_file')
+    num_lasers = LaunchConfiguration('num_lasers')
     rviz_config = LaunchConfiguration('rviz_config')
     use_sim_time = LaunchConfiguration('use_sim_time')
     output_frame = LaunchConfiguration('output_frame')
-    scan_topic_1 = LaunchConfiguration('scan_topic_1')
-    scan_topic_2 = LaunchConfiguration('scan_topic_2')
     cloud_topic = LaunchConfiguration('cloud_topic')
     enable_rviz = LaunchConfiguration('enable_rviz')
     enable_respawn = LaunchConfiguration('enable_respawn')
@@ -127,9 +124,8 @@ def generate_launch_description():
             params_file,
             {
                 'use_sim_time': use_sim_time,
+                'num_lasers': num_lasers,
                 'pointCloutFrameId': output_frame,
-                'scanTopic1': scan_topic_1,
-                'scanTopic2': scan_topic_2,
                 'pointCloudTopic': cloud_topic,
             }
         ],
@@ -185,11 +181,10 @@ def generate_launch_description():
     return LaunchDescription([
         # Launch arguments
         params_file_arg,
+        num_lasers_arg,
         rviz_config_arg,
         use_sim_time_arg,
         output_frame_arg,
-        scan_topic_1_arg,
-        scan_topic_2_arg,
         cloud_topic_arg,
         enable_rviz_arg,
         enable_respawn_arg,
