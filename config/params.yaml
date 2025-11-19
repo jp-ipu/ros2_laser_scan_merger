@@ -1,61 +1,146 @@
+################################################################################
+# ROS2 Laser Scan Merger - Configuration File
+#
+# This file configures the laser scan merger node which combines multiple
+# laser scan sources into a single merged point cloud and laser scan output.
+#
+# For ROS2 Jazzy - Best Practices Format
+################################################################################
+
 /ros2_laser_scan_merger:
   ros__parameters:
-    flip1: false
-    flip2: false
-    inverse1: true
-    inverse2: true
-    laser1Alpha: 0.0
-    laser1AngleMax: 94.0
-    laser1AngleMin: -4.0
-    laser1B: 0
-    laser1G: 0
-    laser1R: 255
-    laser1XOff: -0.3
-    laser1YOff: -0.475
-    laser1ZOff: 0.176
-    laser2Alpha: 180.0
-    laser2AngleMax: 94.0
-    laser2AngleMin: 0.0
-    laser2B: 255
-    laser2G: 0
-    laser2R: 0
-    laser2XOff: 0.3
-    laser2YOff: 0.475
-    laser2ZOff: 0.176
-    pointCloudTopic: cloud_in
-    pointCloutFrameId: laser
-    qos_overrides./parameter_events.publisher.depth: 1000
-    # qos_overrides./parameter_events.publisher.durability: volatile
-    # qos_overrides./parameter_events.publisher.history: keep_last
-    qos_overrides./parameter_events.publisher.reliability: best_effort
+    # ============================================================================
+    # General Settings
+    # ============================================================================
+    use_sim_time: false  # Set to true when using simulation time (e.g., from bag files)
+
+    # ============================================================================
+    # Topic Configuration
+    # ============================================================================
+    # Input laser scan topics to merge
     scanTopic1: /lidar_1/scan
     scanTopic2: /lidar_2/scan
+
+    # Output topics
+    pointCloudTopic: cloud_in        # Merged point cloud output topic
+    pointCloutFrameId: laser         # Frame ID for the merged point cloud
+
+    # ============================================================================
+    # Laser 1 Configuration
+    # ============================================================================
+    # Enable/disable laser 1 in the merged output
     show1: true
+
+    # Spatial Transform (position in meters)
+    laser1XOff: -0.3      # X offset from reference frame
+    laser1YOff: -0.475    # Y offset from reference frame
+    laser1ZOff: 0.176     # Z offset from reference frame
+    laser1Alpha: 0.0      # Rotation angle in degrees
+
+    # Angular Range (in degrees)
+    laser1AngleMin: -4.0   # Minimum angle to include from laser 1
+    laser1AngleMax: 94.0   # Maximum angle to include from laser 1
+
+    # Processing Flags
+    flip1: false          # Flip the laser scan data
+    inverse1: true        # Inverse the angle direction
+
+    # Visualization Color (RGB 0-255)
+    laser1R: 255          # Red channel
+    laser1G: 0            # Green channel
+    laser1B: 0            # Blue channel (displays as red)
+
+    # ============================================================================
+    # Laser 2 Configuration
+    # ============================================================================
+    # Enable/disable laser 2 in the merged output
     show2: true
-    use_sim_time: false
+
+    # Spatial Transform (position in meters)
+    laser2XOff: 0.3       # X offset from reference frame
+    laser2YOff: 0.475     # Y offset from reference frame
+    laser2ZOff: 0.176     # Z offset from reference frame
+    laser2Alpha: 180.0    # Rotation angle in degrees
+
+    # Angular Range (in degrees)
+    laser2AngleMin: 0.0    # Minimum angle to include from laser 2
+    laser2AngleMax: 94.0   # Maximum angle to include from laser 2
+
+    # Processing Flags
+    flip2: false          # Flip the laser scan data
+    inverse2: true        # Inverse the angle direction
+
+    # Visualization Color (RGB 0-255)
+    laser2R: 0            # Red channel
+    laser2G: 0            # Green channel
+    laser2B: 255          # Blue channel (displays as blue)
+
+    # ============================================================================
+    # QoS Settings
+    # ============================================================================
+    # Quality of Service overrides for parameter events
+    qos_overrides./parameter_events.publisher.depth: 1000
+    qos_overrides./parameter_events.publisher.reliability: best_effort
+    # qos_overrides./parameter_events.publisher.durability: volatile
+    # qos_overrides./parameter_events.publisher.history: keep_last
+
+################################################################################
+# Pointcloud to LaserScan Conversion Node Configuration
+################################################################################
 
 /pointcloud_to_laserscan:
   ros__parameters:
-    angle_increment: 0.0087
-    # angle_max: 1.5708
-    # angle_min: -1.5708
-    angle_max: 3.14
-    angle_min: -3.14
-    inf_epsilon: 1.0
-    max_height: 1.0
-    min_height: 0.0
+    # ============================================================================
+    # General Settings
+    # ============================================================================
+    use_sim_time: false  # Set to true when using simulation time
+
+    # ============================================================================
+    # Frame and Transform Settings
+    # ============================================================================
+    target_frame: laser           # Target frame for the output laser scan
+    transform_tolerance: 0.01     # Transform tolerance in seconds
+
+    # ============================================================================
+    # Scan Parameters
+    # ============================================================================
+    # Angular resolution and range
+    angle_min: -3.14              # Minimum scan angle in radians (~-180°)
+    angle_max: 3.14               # Maximum scan angle in radians (~180°)
+    angle_increment: 0.0087       # Angular resolution in radians (~0.5°)
+    scan_time: 0.3333             # Time between scans in seconds (~3 Hz)
+
+    # Distance filtering
+    range_min: 0.35               # Minimum range in meters
+    range_max: 10.0               # Maximum range in meters
+
+    # Height filtering (Z-axis bounds for point cloud filtering)
+    min_height: 0.0               # Minimum height in meters
+    max_height: 1.0               # Maximum height in meters
+
+    # ============================================================================
+    # Processing Settings
+    # ============================================================================
+    use_inf: true                 # Use infinity for invalid ranges
+    inf_epsilon: 1.0              # Epsilon for infinity comparison
+    queue_size: 16                # Message queue size
+
+    # ============================================================================
+    # QoS Settings
+    # ============================================================================
     qos_overrides:
       /parameter_events:
         publisher:
           depth: 1000
+          reliability: best_effort
           # durability: volatile
           # history: keep_last
-          reliability: best_effort
-    queue_size: 16
-    range_max: 10.0
-    range_min: 0.35
-    scan_time: 0.3333
-    target_frame: laser
-    transform_tolerance: 0.01
-    use_inf: true
-    use_sim_time: false
+
+################################################################################
+# Notes:
+# - Angle values for laser scanners are in degrees
+# - Angle values for the conversion node are in radians
+# - Adjust the height filtering (min_height/max_height) to filter out
+#   ground plane or ceiling points as needed
+# - The merged output will be in the frame specified by pointCloutFrameId
+################################################################################
