@@ -72,8 +72,8 @@ ScanMerger::ScanMerger()
 // ============================================================================
 
 void ScanMerger::initialize_params() {
-  this->declare_parameter("pointCloudTopic", "cloud_in");
-  this->declare_parameter("destination_frame", "laser");
+  this->declare_parameter("cloud_topic", "cloud_in");
+  this->declare_parameter("cloud_frame", "laser");
   this->declare_parameter("num_lasers", 2);
   this->declare_parameter("publish_rate", 30.0);
 
@@ -95,8 +95,8 @@ void ScanMerger::initialize_params() {
 }
 
 void ScanMerger::refresh_params() {
-  cloud_topic_ = this->get_parameter("pointCloudTopic").as_string();
-  cloud_frame_id_ = this->get_parameter("destination_frame").as_string();
+  cloud_topic_ = this->get_parameter("cloud_topic").as_string();
+  cloud_frame_id_ = this->get_parameter("cloud_frame").as_string();
   const int num_lasers = static_cast<int>(this->get_parameter("num_lasers").as_int());
   publish_rate_ = this->get_parameter("publish_rate").as_double();
 
@@ -375,7 +375,7 @@ void ScanMerger::publish_merged_cloud() {
   if (require_all_scans_) {
     const rclcpp::Duration timestamp_spread =
         latest_timestamp - oldest_timestamp;
-    if (timestamp_spread.seconds() > 0.1) {  // 100ms threshold
+    if (timestamp_spread.seconds() > (1.0 / publish_rate_)) { 
       RCLCPP_WARN_THROTTLE(
           this->get_logger(), *this->get_clock(), 5000,
           "Large timestamp spread in merged scans: %.3f seconds",
