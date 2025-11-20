@@ -8,7 +8,7 @@
 # The node now supports N laser scanners (configured via params file or args)
 #
 # Usage:
-#   ros2 launch ros2_laser_scan_merger visualize_merge_2_scan.launch.py
+#   ros2 launch ros2_laser_scan_merger laserscan_visualizer.launch.py
 #
 # Optional arguments:
 #   params_file:=<path>        - Path to custom parameters file
@@ -20,7 +20,7 @@
 #   enable_rviz:=<true/false>  - Enable/disable RViz visualization
 #
 # Example with 3 lasers:
-#   ros2 launch ros2_laser_scan_merger visualize_merge_2_scan.launch.py num_lasers:=3
+#   ros2 launch ros2_laser_scan_merger laserscan_visualizer.launch.py num_lasers:=3
 #
 # Created by: Michael Jonathan (mich1342)
 # Modified for ROS2 Jazzy best practices with N-laser support

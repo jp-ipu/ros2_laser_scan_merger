@@ -242,12 +242,12 @@ publish_rate: 30.0  # Optional - defaults to 30Hz if not specified
 
 1. **With 2 lasers** (original case):
    ```bash
-   ros2 launch ros2_laser_scan_merger merge_2_scan.launch.py
+   ros2 launch ros2_laser_scan_merger laserscan_multi_merger.launch.py
    ```
 
 2. **With 3+ lasers**:
    ```bash
-   ros2 launch ros2_laser_scan_merger merge_2_scan.launch.py num_lasers:=3
+   ros2 launch ros2_laser_scan_merger laserscan_multi_merger.launch.py num_lasers:=3
    ```
 
 3. **Verify publish rate**:

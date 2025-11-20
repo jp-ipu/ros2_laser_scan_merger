@@ -111,12 +111,12 @@ Edit `config/params.yaml`:
 
 **Without visualization:**
 ```bash
-ros2 launch ros2_laser_scan_merger merge_2_scan.launch.py
+ros2 launch ros2_laser_scan_merger laserscan_multi_merger.launch.py
 ```
 
 **With RVIZ2 visualization:**
 ```bash
-ros2 launch ros2_laser_scan_merger visualize_merge_2_scan.launch.py
+ros2 launch ros2_laser_scan_merger laserscan_visualizer.launch.py
 ```
 
 Both launch files include the `pointcloud_to_laserscan` node for LaserScan output.
