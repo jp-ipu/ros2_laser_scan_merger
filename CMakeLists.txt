@@ -43,7 +43,10 @@ target_include_directories(laser_scan_merger_core PUBLIC
 )
 
 # Build ROS2 node executable
-add_executable(ros2_laser_scan_merger src/main.cpp)
+add_executable(ros2_laser_scan_merger
+  src/main.cpp
+  src/scan_merger_node.cpp
+)
 target_link_libraries(ros2_laser_scan_merger laser_scan_merger_core)
 ament_target_dependencies(ros2_laser_scan_merger
   rclcpp
