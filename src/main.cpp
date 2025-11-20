@@ -6,6 +6,7 @@
 //   Modified to support N laser scans (dynamic number of inputs)
 //   Refactored for TF2-only approach with cached transforms for performance
 //   Optimized based on ira_laser_tools analysis
+//   Refactored for testability: core algorithms extracted to separate classes
 //
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -27,17 +28,12 @@
 #include <string>
 #include <vector>
 
+#include "laser_scan_merger/math_utils.hpp"
+#include "laser_scan_merger/scan_processor.hpp"
+
 namespace laser_scan_merger {
 
-// Cached transform data for performance
-struct CachedTransform {
-  float r00, r01, r02, tx;  // Rotation matrix row 0 + translation x
-  float r10, r11, r12, ty;  // Rotation matrix row 1 + translation y
-  float r20, r21, r22, tz;  // Rotation matrix row 2 + translation z
-  bool valid{false};
-};
-
-// Configuration for each laser scanner
+// Configuration for each laser scanner (ROS2-specific parts)
 struct LaserConfig {
   std::string topic;
   // Note: source_frame is read from scan->header.frame_id, not configured
@@ -57,7 +53,7 @@ struct LaserConfig {
   bool data_received{false};  // For synchronization
 
   // Cached transform (for use_fixed_transforms mode)
-  CachedTransform cached_transform;
+  math::Transform3D cached_transform;  // Using testable type from math_utils
 };
 
 class ScanMerger : public rclcpp::Node {
@@ -132,32 +128,20 @@ class ScanMerger : public rclcpp::Node {
     }
 
     try {
-      auto transform = tf_buffer_.lookupTransform(
+      auto tf_msg = tf_buffer_.lookupTransform(
           cloud_frame_id_, laser.detected_frame_id, tf2::TimePointZero,
           tf2::durationFromSec(tf_timeout_));
 
-      // Extract translation
-      laser.cached_transform.tx = transform.transform.translation.x;
-      laser.cached_transform.ty = transform.transform.translation.y;
-      laser.cached_transform.tz = transform.transform.translation.z;
+      // Use testable math function to convert quaternion to transform
+      laser.cached_transform = math::QuaternionToTransform(
+          tf_msg.transform.rotation.x,
+          tf_msg.transform.rotation.y,
+          tf_msg.transform.rotation.z,
+          tf_msg.transform.rotation.w,
+          tf_msg.transform.translation.x,
+          tf_msg.transform.translation.y,
+          tf_msg.transform.translation.z);
 
-      // Convert quaternion to rotation matrix
-      float qx = transform.transform.rotation.x;
-      float qy = transform.transform.rotation.y;
-      float qz = transform.transform.rotation.z;
-      float qw = transform.transform.rotation.w;
-
-      laser.cached_transform.r00 = 1 - 2 * (qy * qy + qz * qz);
-      laser.cached_transform.r01 = 2 * (qx * qy - qz * qw);
-      laser.cached_transform.r02 = 2 * (qx * qz + qy * qw);
-      laser.cached_transform.r10 = 2 * (qx * qy + qz * qw);
-      laser.cached_transform.r11 = 1 - 2 * (qx * qx + qz * qz);
-      laser.cached_transform.r12 = 2 * (qy * qz - qx * qw);
-      laser.cached_transform.r20 = 2 * (qx * qz - qy * qw);
-      laser.cached_transform.r21 = 2 * (qy * qz + qx * qw);
-      laser.cached_transform.r22 = 1 - 2 * (qx * qx + qy * qy);
-
-      laser.cached_transform.valid = true;
       return true;
 
     } catch (const tf2::TransformException& ex) {
@@ -309,7 +293,7 @@ class ScanMerger : public rclcpp::Node {
     const auto& scan = laser.last_scan;
 
     // Get transform (cached or lookup)
-    CachedTransform transform;
+    math::Transform3D transform;
 
     if (use_fixed_transforms_ && laser.cached_transform.valid) {
       // Use cached transform (fast path)
@@ -325,62 +309,40 @@ class ScanMerger : public rclcpp::Node {
       }
     }
 
-    // Process scan points
-    float angle_min = scan->angle_min;
-    float angle_max = scan->angle_max;
-    if (angle_min > angle_max) {
-      std::swap(angle_min, angle_max);
-    }
+    // Convert ROS2 LaserScan to testable ScanData
+    ScanData scan_data;
+    scan_data.ranges = scan->ranges;
+    scan_data.angle_min = scan->angle_min;
+    scan_data.angle_max = scan->angle_max;
+    scan_data.angle_increment = scan->angle_increment;
 
-    const float filter_min_rad = laser.angle_min * M_PI / 180.0f;
-    const float filter_max_rad = laser.angle_max * M_PI / 180.0f;
+    // Configure processing
+    ScanProcessingConfig config;
+    config.angle_min_deg = laser.angle_min;
+    config.angle_max_deg = laser.angle_max;
+    config.flip = laser.flip;
+    config.inverse = laser.inverse;
+    config.r = laser.r;
+    config.g = laser.g;
+    config.b = laser.b;
 
-    size_t num_points = scan->ranges.size();
-    float current_angle = angle_min;
+    // Process scan using testable core algorithm
+    std::vector<ColoredPoint> points = scan_processor_.ProcessScan(scan_data, transform, config);
 
-    for (size_t i = 0; i < num_points; ++i) {
-      size_t index = laser.flip ? (num_points - 1 - i) : i;
-      float range = scan->ranges[index];
-
-      if (!std::isfinite(range) || range <= 0.0f) {
-        current_angle += scan->angle_increment;
-        continue;
-      }
-
-      // Apply angle filtering
-      bool outside_range =
-          (current_angle < filter_min_rad) || (current_angle > filter_max_rad);
-      bool include_point =
-          (outside_range && laser.inverse) || (!outside_range && !laser.inverse);
-
-      if (!include_point) {
-        current_angle += scan->angle_increment;
-        continue;
-      }
-
-      // Convert polar to Cartesian (in laser frame)
-      float local_x = range * std::cos(current_angle);
-      float local_y = range * std::sin(current_angle);
-      float local_z = 0.0f;
-
-      // Apply 3D TF transform
-      pcl::PointXYZRGB point;
-      point.x = transform.r00 * local_x + transform.r01 * local_y +
-                transform.r02 * local_z + transform.tx;
-      point.y = transform.r10 * local_x + transform.r11 * local_y +
-                transform.r12 * local_z + transform.ty;
-      point.z = transform.r20 * local_x + transform.r21 * local_y +
-                transform.r22 * local_z + transform.tz;
-      point.r = laser.r;
-      point.g = laser.g;
-      point.b = laser.b;
-
-      cloud.points.push_back(point);
-      current_angle += scan->angle_increment;
+    // Convert to PCL format
+    for (const auto& point : points) {
+      pcl::PointXYZRGB pcl_point;
+      pcl_point.x = point.x;
+      pcl_point.y = point.y;
+      pcl_point.z = point.z;
+      pcl_point.r = point.r;
+      pcl_point.g = point.g;
+      pcl_point.b = point.b;
+      cloud.points.push_back(pcl_point);
     }
   }
 
-  bool LookupTransform(size_t laser_idx, CachedTransform& transform) {
+  bool LookupTransform(size_t laser_idx, math::Transform3D& transform) {
     const auto& laser = lasers_[laser_idx];
 
     if (laser.detected_frame_id.empty()) {
@@ -388,35 +350,24 @@ class ScanMerger : public rclcpp::Node {
     }
 
     try {
-      auto tf_transform = tf_buffer_.lookupTransform(
+      auto tf_msg = tf_buffer_.lookupTransform(
           cloud_frame_id_, laser.detected_frame_id, tf2::TimePointZero,
           tf2::durationFromSec(tf_timeout_));
 
-      // Extract translation
-      transform.tx = tf_transform.transform.translation.x;
-      transform.ty = tf_transform.transform.translation.y;
-      transform.tz = tf_transform.transform.translation.z;
+      // Use testable math function to convert quaternion to transform
+      transform = math::QuaternionToTransform(
+          tf_msg.transform.rotation.x,
+          tf_msg.transform.rotation.y,
+          tf_msg.transform.rotation.z,
+          tf_msg.transform.rotation.w,
+          tf_msg.transform.translation.x,
+          tf_msg.transform.translation.y,
+          tf_msg.transform.translation.z);
 
-      // Convert quaternion to rotation matrix
-      float qx = tf_transform.transform.rotation.x;
-      float qy = tf_transform.transform.rotation.y;
-      float qz = tf_transform.transform.rotation.z;
-      float qw = tf_transform.transform.rotation.w;
-
-      transform.r00 = 1 - 2 * (qy * qy + qz * qz);
-      transform.r01 = 2 * (qx * qy - qz * qw);
-      transform.r02 = 2 * (qx * qz + qy * qw);
-      transform.r10 = 2 * (qx * qy + qz * qw);
-      transform.r11 = 1 - 2 * (qx * qx + qz * qz);
-      transform.r12 = 2 * (qy * qz - qx * qw);
-      transform.r20 = 2 * (qx * qz - qy * qw);
-      transform.r21 = 2 * (qy * qz + qx * qw);
-      transform.r22 = 1 - 2 * (qx * qx + qy * qy);
-
-      transform.valid = true;
       return true;
 
     } catch (const tf2::TransformException& ex) {
+      transform.valid = false;
       return false;
     }
   }
@@ -540,6 +491,9 @@ class ScanMerger : public rclcpp::Node {
   // TF2
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
+
+  // Core processor (testable, no ROS2 dependencies)
+  LaserScanProcessor scan_processor_;
 };
 
 }  // namespace laser_scan_merger

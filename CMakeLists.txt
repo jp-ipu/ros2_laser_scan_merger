@@ -35,7 +35,20 @@ include_directories(
   include
   ${PCL_INCLUDE_DIRS}
 )
+
+# Build testable core library (no ROS2 dependencies)
+add_library(laser_scan_merger_core
+  src/math_utils.cpp
+  src/scan_processor.cpp
+)
+target_include_directories(laser_scan_merger_core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+# Build ROS2 node executable
 add_executable(ros2_laser_scan_merger src/main.cpp)
+target_link_libraries(ros2_laser_scan_merger laser_scan_merger_core)
 ament_target_dependencies(ros2_laser_scan_merger 
   rclcpp 
   std_msgs 
@@ -67,6 +80,8 @@ ros2_laser_scan_merger
 DESTINATION lib/${PROJECT_NAME})
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
+  find_package(ament_cmake_gtest REQUIRED)
+
   # the following line skips the linter which checks for copyrights
   # uncomment the line when a copyright and license is not present in all source files
   #set(ament_cmake_copyright_FOUND TRUE)
@@ -74,6 +89,13 @@ if(BUILD_TESTING)
   # uncomment the line when this package is not in a git repo
   #set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  # Unit tests for core library (no ROS2 dependencies required)
+  ament_add_gtest(test_math_utils test/test_math_utils.cpp)
+  target_link_libraries(test_math_utils laser_scan_merger_core)
+
+  ament_add_gtest(test_scan_processor test/test_scan_processor.cpp)
+  target_link_libraries(test_scan_processor laser_scan_merger_core)
 endif()
 
 ament_package()
