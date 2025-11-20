@@ -395,11 +395,12 @@ void ScanMerger::publish_merged_cloud() {
   pc2_msg->height = 1;
   pc2_msg->width = all_points.size();
 
-  // Define PointCloud2 fields (XYZRGB)
+  // Define PointCloud2 fields (XYZRGB + Intensity)
   sensor_msgs::PointCloud2Modifier modifier(*pc2_msg);
   modifier.setPointCloud2Fields(
-      6, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1,
+      7, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1,
       sensor_msgs::msg::PointField::FLOAT32, "z", 1,
+      sensor_msgs::msg::PointField::FLOAT32, "intensity", 1,
       sensor_msgs::msg::PointField::FLOAT32, "rgb", 1,
       sensor_msgs::msg::PointField::FLOAT32, "r", 1,
       sensor_msgs::msg::PointField::UINT8, "g", 1,
@@ -410,6 +411,7 @@ void ScanMerger::publish_merged_cloud() {
   sensor_msgs::PointCloud2Iterator<float> iter_x(*pc2_msg, "x");
   sensor_msgs::PointCloud2Iterator<float> iter_y(*pc2_msg, "y");
   sensor_msgs::PointCloud2Iterator<float> iter_z(*pc2_msg, "z");
+  sensor_msgs::PointCloud2Iterator<float> iter_intensity(*pc2_msg, "intensity");
   sensor_msgs::PointCloud2Iterator<uint8_t> iter_r(*pc2_msg, "r");
   sensor_msgs::PointCloud2Iterator<uint8_t> iter_g(*pc2_msg, "g");
   sensor_msgs::PointCloud2Iterator<uint8_t> iter_b(*pc2_msg, "b");
@@ -419,6 +421,7 @@ void ScanMerger::publish_merged_cloud() {
     *iter_x = point.x;
     *iter_y = point.y;
     *iter_z = point.z;
+    *iter_intensity = point.intensity;
     *iter_r = point.r;
     *iter_g = point.g;
     *iter_b = point.b;
@@ -426,6 +429,7 @@ void ScanMerger::publish_merged_cloud() {
     ++iter_x;
     ++iter_y;
     ++iter_z;
+    ++iter_intensity;
     ++iter_r;
     ++iter_g;
     ++iter_b;
@@ -464,6 +468,7 @@ void ScanMerger::process_laser_scan(const LaserConfig& laser,
   // Convert ROS2 LaserScan to testable ScanData
   ScanData scan_data{};
   scan_data.ranges = scan->ranges;
+  scan_data.intensities = scan->intensities;  // Preserve intensity data
   scan_data.angle_min = scan->angle_min;
   scan_data.angle_max = scan->angle_max;
   scan_data.angle_increment = scan->angle_increment;

@@ -20,15 +20,17 @@ struct ScanProcessingConfig {
 // Lightweight scan data structure (no ROS2 dependency)
 struct ScanData {
   std::vector<float> ranges;
-  float angle_min;        // radians
-  float angle_max;        // radians
-  float angle_increment;  // radians
+  std::vector<float> intensities;  // Intensity values (may be empty)
+  float angle_min;                 // radians
+  float angle_max;                 // radians
+  float angle_increment;           // radians
 };
 
-// Result point (XYZRGB)
+// Result point (XYZRGB + Intensity)
 struct ColoredPoint {
   float x, y, z;
   uint8_t r, g, b;
+  float intensity{0.0F};  // Intensity value from laser scan
 };
 
 // Core laser scan processing class with NO ROS2 dependencies

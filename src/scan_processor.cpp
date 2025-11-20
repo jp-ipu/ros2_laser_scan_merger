@@ -55,7 +55,12 @@ std::vector<ColoredPoint> LaserScanProcessor::process_scan(
     // Apply 3D transform (laser frame -> target frame)
     math::Point3D transformed_point = math::apply_transform(transform, local_point);
 
-    // Create colored point
+    // Get intensity value if available
+    const float intensity = (!scan.intensities.empty() && index < scan.intensities.size())
+                                ? scan.intensities[index]
+                                : 0.0F;
+
+    // Create colored point with intensity
     ColoredPoint point{};
     point.x = transformed_point.x;
     point.y = transformed_point.y;
@@ -63,6 +68,7 @@ std::vector<ColoredPoint> LaserScanProcessor::process_scan(
     point.r = config.r;
     point.g = config.g;
     point.b = config.b;
+    point.intensity = intensity;
 
     result.push_back(point);
     current_angle += scan.angle_increment;
