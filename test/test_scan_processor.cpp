@@ -6,7 +6,7 @@
 using namespace laser_scan_merger;
 
 // Test processing a simple scan with identity transform
-TEST(ScanProcessorTest, ProcessScanIdentityTransform) {
+TEST(ScanProcessorTest, process_scanIdentityTransform) {
   LaserScanProcessor processor;
 
   // Create scan data: 3 points at 0, 45, 90 degrees with range 1.0
@@ -17,7 +17,7 @@ TEST(ScanProcessorTest, ProcessScanIdentityTransform) {
   scan.angle_increment = M_PI / 4.0f;  // 45 degrees
 
   // Identity transform (no rotation, no translation)
-  math::Transform3D transform = math::QuaternionToTransform(
+  math::Transform3D transform = math::quaternion_to_transform(
       0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
 
   // Processing config: include all angles
@@ -30,7 +30,7 @@ TEST(ScanProcessorTest, ProcessScanIdentityTransform) {
   config.g = 0;
   config.b = 0;
 
-  std::vector<ColoredPoint> points = processor.ProcessScan(scan, transform, config);
+  std::vector<ColoredPoint> points = processor.process_scan(scan, transform, config);
 
   // Should have 3 points
   ASSERT_EQ(points.size(), 3);
@@ -55,7 +55,7 @@ TEST(ScanProcessorTest, ProcessScanIdentityTransform) {
 }
 
 // Test processing with translation transform
-TEST(ScanProcessorTest, ProcessScanWithTranslation) {
+TEST(ScanProcessorTest, process_scanWithTranslation) {
   LaserScanProcessor processor;
 
   // Simple scan: 1 point at 0 degrees, range 1.0
@@ -66,7 +66,7 @@ TEST(ScanProcessorTest, ProcessScanWithTranslation) {
   scan.angle_increment = 0.0f;
 
   // Transform with translation (10, 20, 30)
-  math::Transform3D transform = math::QuaternionToTransform(
+  math::Transform3D transform = math::quaternion_to_transform(
       0.0f, 0.0f, 0.0f, 1.0f, 10.0f, 20.0f, 30.0f);
 
   ScanProcessingConfig config;
@@ -78,7 +78,7 @@ TEST(ScanProcessorTest, ProcessScanWithTranslation) {
   config.g = 255;
   config.b = 0;
 
-  std::vector<ColoredPoint> points = processor.ProcessScan(scan, transform, config);
+  std::vector<ColoredPoint> points = processor.process_scan(scan, transform, config);
 
   ASSERT_EQ(points.size(), 1);
 
@@ -99,7 +99,7 @@ TEST(ScanProcessorTest, AngleFilteringNormalMode) {
   scan.angle_max = M_PI;
   scan.angle_increment = M_PI / 4.0f;  // 45 degrees
 
-  math::Transform3D transform = math::QuaternionToTransform(
+  math::Transform3D transform = math::quaternion_to_transform(
       0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
 
   // Filter to only include 0-90 degrees (first 3 points)
@@ -112,7 +112,7 @@ TEST(ScanProcessorTest, AngleFilteringNormalMode) {
   config.g = 0;
   config.b = 255;
 
-  std::vector<ColoredPoint> points = processor.ProcessScan(scan, transform, config);
+  std::vector<ColoredPoint> points = processor.process_scan(scan, transform, config);
 
   // Should have 3 points (0, 45, 90 degrees)
   EXPECT_EQ(points.size(), 3);
@@ -129,7 +129,7 @@ TEST(ScanProcessorTest, AngleFilteringInverseMode) {
   scan.angle_max = M_PI;
   scan.angle_increment = M_PI / 4.0f;
 
-  math::Transform3D transform = math::QuaternionToTransform(
+  math::Transform3D transform = math::quaternion_to_transform(
       0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
 
   // Filter to exclude 0-90 degrees (inverse mode)
@@ -142,7 +142,7 @@ TEST(ScanProcessorTest, AngleFilteringInverseMode) {
   config.g = 0;
   config.b = 255;
 
-  std::vector<ColoredPoint> points = processor.ProcessScan(scan, transform, config);
+  std::vector<ColoredPoint> points = processor.process_scan(scan, transform, config);
 
   // Should have 2 points (135, 180 degrees) - excluding 0, 45, 90
   EXPECT_EQ(points.size(), 2);
@@ -159,7 +159,7 @@ TEST(ScanProcessorTest, FlipMode) {
   scan.angle_max = M_PI / 2.0f;
   scan.angle_increment = M_PI / 4.0f;
 
-  math::Transform3D transform = math::QuaternionToTransform(
+  math::Transform3D transform = math::quaternion_to_transform(
       0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
 
   ScanProcessingConfig config;
@@ -171,7 +171,7 @@ TEST(ScanProcessorTest, FlipMode) {
   config.g = 0;
   config.b = 0;
 
-  std::vector<ColoredPoint> points = processor.ProcessScan(scan, transform, config);
+  std::vector<ColoredPoint> points = processor.process_scan(scan, transform, config);
 
   ASSERT_EQ(points.size(), 3);
 
@@ -194,7 +194,7 @@ TEST(ScanProcessorTest, FilterInvalidRanges) {
   scan.angle_max = M_PI;
   scan.angle_increment = M_PI / 4.0f;
 
-  math::Transform3D transform = math::QuaternionToTransform(
+  math::Transform3D transform = math::quaternion_to_transform(
       0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
 
   ScanProcessingConfig config;
@@ -206,7 +206,7 @@ TEST(ScanProcessorTest, FilterInvalidRanges) {
   config.g = 0;
   config.b = 0;
 
-  std::vector<ColoredPoint> points = processor.ProcessScan(scan, transform, config);
+  std::vector<ColoredPoint> points = processor.process_scan(scan, transform, config);
 
   // Should only have 2 valid points (1.0 and 2.0)
   EXPECT_EQ(points.size(), 2);
@@ -222,7 +222,7 @@ TEST(ScanProcessorTest, Statistics) {
   scan.angle_max = M_PI;
   scan.angle_increment = M_PI / 4.0f;
 
-  math::Transform3D transform = math::QuaternionToTransform(
+  math::Transform3D transform = math::quaternion_to_transform(
       0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
 
   ScanProcessingConfig config;
@@ -234,9 +234,9 @@ TEST(ScanProcessorTest, Statistics) {
   config.g = 0;
   config.b = 0;
 
-  std::vector<ColoredPoint> points = processor.ProcessScan(scan, transform, config);
+  std::vector<ColoredPoint> points = processor.process_scan(scan, transform, config);
 
-  const auto& stats = processor.GetLastStatistics();
+  const auto& stats = processor.get_last_statistics();
 
   EXPECT_EQ(stats.total_points, 5);
   EXPECT_EQ(stats.invalid_points, 2);  // -1.0 and inf

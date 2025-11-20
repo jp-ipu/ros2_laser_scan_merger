@@ -4,7 +4,7 @@
 
 namespace laser_scan_merger {
 
-std::vector<ColoredPoint> LaserScanProcessor::ProcessScan(
+std::vector<ColoredPoint> LaserScanProcessor::process_scan(
     const ScanData& scan, const math::Transform3D& transform,
     const ScanProcessingConfig& config) const {
   // Reset statistics
@@ -14,8 +14,8 @@ std::vector<ColoredPoint> LaserScanProcessor::ProcessScan(
   result.reserve(scan.ranges.size());  // Pre-allocate for efficiency
 
   // Convert filter angles from degrees to radians
-  const float filter_min_rad = math::DegreesToRadians(config.angle_min_deg);
-  const float filter_max_rad = math::DegreesToRadians(config.angle_max_deg);
+  const float filter_min_rad = math::degrees_to_radians(config.angle_min_deg);
+  const float filter_max_rad = math::degrees_to_radians(config.angle_max_deg);
 
   // Normalize angle range
   float angle_min = scan.angle_min;
@@ -42,7 +42,7 @@ std::vector<ColoredPoint> LaserScanProcessor::ProcessScan(
     }
 
     // Apply angle filtering
-    if (!math::ShouldIncludePoint(current_angle, filter_min_rad, filter_max_rad,
+    if (!math::should_include_point(current_angle, filter_min_rad, filter_max_rad,
                                    config.inverse)) {
       last_stats_.filtered_points++;
       current_angle += scan.angle_increment;
@@ -50,13 +50,13 @@ std::vector<ColoredPoint> LaserScanProcessor::ProcessScan(
     }
 
     // Convert polar to Cartesian (in laser frame)
-    math::Point3D local_point = math::PolarToCartesian(range, current_angle);
+    math::Point3D local_point = math::polar_to_cartesian(range, current_angle);
 
     // Apply 3D transform (laser frame -> target frame)
-    math::Point3D transformed_point = math::ApplyTransform(transform, local_point);
+    math::Point3D transformed_point = math::apply_transform(transform, local_point);
 
     // Create colored point
-    ColoredPoint point;
+    ColoredPoint point{};
     point.x = transformed_point.x;
     point.y = transformed_point.y;
     point.z = transformed_point.z;

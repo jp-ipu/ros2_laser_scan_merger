@@ -23,9 +23,9 @@ ScanMerger::ScanMerger()
     : Node("ros2_laser_scan_merger"),
       tf_buffer_(this->get_clock()),
       tf_listener_(tf_buffer_) {
-  InitializeParams();
-  RefreshParams();
-  SetupSubscribers();
+  initialize_params();
+  refresh_params();
+  setup_subscribers();
 
   point_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
       cloud_topic_, rclcpp::SensorDataQoS());
@@ -35,7 +35,7 @@ ScanMerger::ScanMerger()
     const auto period_ms = static_cast<int>(1000.0 / publish_rate_);
     publish_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(period_ms),
-        std::bind(&ScanMerger::PublishMergedCloud, this));
+        std::bind(&ScanMerger::publish_merged_cloud, this));
   }
 
   // Log initialization info
@@ -71,7 +71,7 @@ ScanMerger::ScanMerger()
 // Initialization Methods
 // ============================================================================
 
-void ScanMerger::InitializeParams() {
+void ScanMerger::initialize_params() {
   this->declare_parameter("pointCloudTopic", "cloud_in");
   this->declare_parameter("destination_frame", "laser");
   this->declare_parameter("num_lasers", 2);
@@ -94,7 +94,7 @@ void ScanMerger::InitializeParams() {
   this->declare_parameter("inverse", false);
 }
 
-void ScanMerger::RefreshParams() {
+void ScanMerger::refresh_params() {
   cloud_topic_ = this->get_parameter("pointCloudTopic").as_string();
   cloud_frame_id_ = this->get_parameter("destination_frame").as_string();
   const int num_lasers = this->get_parameter("num_lasers").as_int();
@@ -123,11 +123,11 @@ void ScanMerger::RefreshParams() {
 
   // Load parameters for each laser
   for (int i = 0; i < num_lasers; ++i) {
-    LoadLaserParams(i);
+    load_laser_params(i);
   }
 }
 
-void ScanMerger::SetupSubscribers() {
+void ScanMerger::setup_subscribers() {
   const auto default_qos = rclcpp::QoS(rclcpp::SensorDataQoS());
 
   for (size_t i = 0; i < lasers_.size(); ++i) {
@@ -136,7 +136,7 @@ void ScanMerger::SetupSubscribers() {
         this->create_subscription<sensor_msgs::msg::LaserScan>(
             lasers_[i].topic, default_qos,
             [this, i](sensor_msgs::msg::LaserScan::SharedPtr msg) {
-              this->ScanCallback(i, msg);
+              this->scan_callback(i, msg);
             });
   }
 }
@@ -145,7 +145,7 @@ void ScanMerger::SetupSubscribers() {
 // Parameter Loading
 // ============================================================================
 
-void ScanMerger::LoadLaserParams(const int laser_index) {
+void ScanMerger::load_laser_params(const int laser_index) {
   const std::string prefix = "laser" + std::to_string(laser_index);
 
   // Declare per-laser parameters if not already declared
@@ -196,20 +196,20 @@ void ScanMerger::LoadLaserParams(const int laser_index) {
 // Transform Management
 // ============================================================================
 
-bool ScanMerger::CacheTransform(const size_t laser_idx) {
+bool ScanMerger::cache_transform(const size_t laser_idx) {
   auto& laser = lasers_[laser_idx];
 
-  if (laser.detected_frame_id.empty()) {
+  if (laser.frame_id.empty()) {
     return false;  // Frame not yet detected from scan
   }
 
   try {
     const auto tf_msg = tf_buffer_.lookupTransform(
-        cloud_frame_id_, laser.detected_frame_id, tf2::TimePointZero,
+        cloud_frame_id_, laser.frame_id, tf2::TimePointZero,
         tf2::durationFromSec(tf_timeout_));
 
     // Convert quaternion to transform using testable math function
-    laser.cached_transform = math::QuaternionToTransform(
+    laser.cached_transform = math::quaternion_to_transform(
         tf_msg.transform.rotation.x, tf_msg.transform.rotation.y,
         tf_msg.transform.rotation.z, tf_msg.transform.rotation.w,
         tf_msg.transform.translation.x, tf_msg.transform.translation.y,
@@ -222,21 +222,21 @@ bool ScanMerger::CacheTransform(const size_t laser_idx) {
   }
 }
 
-bool ScanMerger::LookupTransform(const size_t laser_idx,
+bool ScanMerger::lookup_transform(const size_t laser_idx,
                                  math::Transform3D& transform) {
   const auto& laser = lasers_[laser_idx];
 
-  if (laser.detected_frame_id.empty()) {
+  if (laser.frame_id.empty()) {
     return false;  // Frame not yet detected from scan
   }
 
   try {
     const auto tf_msg = tf_buffer_.lookupTransform(
-        cloud_frame_id_, laser.detected_frame_id, tf2::TimePointZero,
+        cloud_frame_id_, laser.frame_id, tf2::TimePointZero,
         tf2::durationFromSec(tf_timeout_));
 
     // Convert quaternion to transform using testable math function
-    transform = math::QuaternionToTransform(
+    transform = math::quaternion_to_transform(
         tf_msg.transform.rotation.x, tf_msg.transform.rotation.y,
         tf_msg.transform.rotation.z, tf_msg.transform.rotation.w,
         tf_msg.transform.translation.x, tf_msg.transform.translation.y,
@@ -253,7 +253,7 @@ bool ScanMerger::LookupTransform(const size_t laser_idx,
 // Callback Handlers
 // ============================================================================
 
-void ScanMerger::ScanCallback(const size_t laser_index,
+void ScanMerger::scan_callback(const size_t laser_index,
                                sensor_msgs::msg::LaserScan::SharedPtr msg) {
   if (laser_index >= lasers_.size()) {
     return;
@@ -263,23 +263,23 @@ void ScanMerger::ScanCallback(const size_t laser_index,
   auto& laser = lasers_[laser_index];
 
   // Detect frame_id from scan header on first reception
-  if (laser.detected_frame_id.empty()) {
-    laser.detected_frame_id = msg->header.frame_id;
+  if (laser.frame_id.empty()) {
+    laser.frame_id = msg->header.frame_id;
     RCLCPP_INFO(this->get_logger(),
                 "Laser %zu: detected frame_id '%s' from scan header",
-                laser_index, laser.detected_frame_id.c_str());
+                laser_index, laser.frame_id.c_str());
 
     // Cache transform if using fixed mode
     if (use_fixed_transforms_ && laser.show) {
-      if (CacheTransform(laser_index)) {
+      if (cache_transform(laser_index)) {
         RCLCPP_INFO(this->get_logger(), "  ✓ Cached transform: %s -> %s",
-                    laser.detected_frame_id.c_str(),
+                    laser.frame_id.c_str(),
                     cloud_frame_id_.c_str());
       } else {
         RCLCPP_WARN(
             this->get_logger(),
             "  ✗ Failed to cache transform: %s -> %s (will use dynamic lookup)",
-            laser.detected_frame_id.c_str(), cloud_frame_id_.c_str());
+            laser.frame_id.c_str(), cloud_frame_id_.c_str());
       }
     }
   }
@@ -301,7 +301,7 @@ void ScanMerger::ScanCallback(const size_t laser_index,
       }
 
       if (all_received) {
-        PublishMergedCloud();
+        publish_merged_cloud();
         // Reset flags for next cycle
         for (auto& l : lasers_) {
           l.data_received = false;
@@ -309,7 +309,7 @@ void ScanMerger::ScanCallback(const size_t laser_index,
       }
     } else {
       // Publish whenever any scan arrives
-      PublishMergedCloud();
+      publish_merged_cloud();
     }
   }
 }
@@ -318,7 +318,7 @@ void ScanMerger::ScanCallback(const size_t laser_index,
 // Publishing and Processing
 // ============================================================================
 
-void ScanMerger::PublishMergedCloud() {
+void ScanMerger::publish_merged_cloud() {
   std::lock_guard<std::mutex> lock(lasers_mutex_);
 
   std::vector<ColoredPoint> all_points;
@@ -364,7 +364,7 @@ void ScanMerger::PublishMergedCloud() {
     }
 
     // Process scan with TF (cached or dynamic)
-    ProcessLaserScan(laser, laser_idx, all_points);
+    process_laser_scan(laser, laser_idx, all_points);
   }
 
   if (!has_valid_scan) {
@@ -439,7 +439,7 @@ void ScanMerger::PublishMergedCloud() {
   }
 }
 
-void ScanMerger::ProcessLaserScan(const LaserConfig& laser,
+void ScanMerger::process_laser_scan(const LaserConfig& laser,
                                    const size_t laser_idx,
                                    std::vector<ColoredPoint>& all_points) {
   const auto& scan = laser.last_scan;
@@ -452,11 +452,11 @@ void ScanMerger::ProcessLaserScan(const LaserConfig& laser,
     transform = laser.cached_transform;
   } else {
     // Dynamic TF lookup
-    if (!LookupTransform(laser_idx, transform)) {
+    if (!lookup_transform(laser_idx, transform)) {
       RCLCPP_WARN_THROTTLE(
           this->get_logger(), *this->get_clock(), 1000,
           "TF lookup failed for laser %zu (%s -> %s), skipping scan", laser_idx,
-          laser.detected_frame_id.c_str(), cloud_frame_id_.c_str());
+          laser.frame_id.c_str(), cloud_frame_id_.c_str());
       return;
     }
   }
@@ -480,7 +480,7 @@ void ScanMerger::ProcessLaserScan(const LaserConfig& laser,
 
   // Process scan using testable core algorithm
   const std::vector<ColoredPoint> points =
-      scan_processor_.ProcessScan(scan_data, transform, config);
+      scan_processor_.process_scan(scan_data, transform, config);
 
   // Accumulate points from this laser
   all_points.insert(all_points.end(), points.begin(), points.end());

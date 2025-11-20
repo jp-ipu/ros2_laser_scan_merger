@@ -5,9 +5,9 @@
 using namespace laser_scan_merger::math;
 
 // Test quaternion to transform conversion (identity transform)
-TEST(MathUtilsTest, QuaternionToTransformIdentity) {
+TEST(MathUtilsTest, quaternion_to_transformIdentity) {
   // Identity quaternion (no rotation)
-  Transform3D transform = QuaternionToTransform(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 2.0f, 3.0f);
+  Transform3D transform = quaternion_to_transform(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 2.0f, 3.0f);
 
   EXPECT_TRUE(transform.valid);
 
@@ -29,9 +29,9 @@ TEST(MathUtilsTest, QuaternionToTransformIdentity) {
 }
 
 // Test 180 degree rotation around Z axis
-TEST(MathUtilsTest, QuaternionToTransform180DegZ) {
+TEST(MathUtilsTest, quaternion_to_transform180DegZ) {
   // 180 degree rotation around Z axis: qz = 1, qw = 0
-  Transform3D transform = QuaternionToTransform(0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+  Transform3D transform = quaternion_to_transform(0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 
   EXPECT_TRUE(transform.valid);
 
@@ -42,10 +42,10 @@ TEST(MathUtilsTest, QuaternionToTransform180DegZ) {
 }
 
 // Test applying identity transform
-TEST(MathUtilsTest, ApplyTransformIdentity) {
-  Transform3D identity = QuaternionToTransform(0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
+TEST(MathUtilsTest, apply_transformIdentity) {
+  Transform3D identity = quaternion_to_transform(0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
 
-  Point3D result = ApplyTransform(identity, 1.0f, 2.0f, 3.0f);
+  Point3D result = apply_transform(identity, 1.0f, 2.0f, 3.0f);
 
   EXPECT_FLOAT_EQ(result.x, 1.0f);
   EXPECT_FLOAT_EQ(result.y, 2.0f);
@@ -53,10 +53,10 @@ TEST(MathUtilsTest, ApplyTransformIdentity) {
 }
 
 // Test applying translation
-TEST(MathUtilsTest, ApplyTransformTranslation) {
-  Transform3D translation = QuaternionToTransform(0.0f, 0.0f, 0.0f, 1.0f, 10.0f, 20.0f, 30.0f);
+TEST(MathUtilsTest, apply_transformTranslation) {
+  Transform3D translation = quaternion_to_transform(0.0f, 0.0f, 0.0f, 1.0f, 10.0f, 20.0f, 30.0f);
 
-  Point3D result = ApplyTransform(translation, 1.0f, 2.0f, 3.0f);
+  Point3D result = apply_transform(translation, 1.0f, 2.0f, 3.0f);
 
   EXPECT_FLOAT_EQ(result.x, 11.0f);
   EXPECT_FLOAT_EQ(result.y, 22.0f);
@@ -64,65 +64,65 @@ TEST(MathUtilsTest, ApplyTransformTranslation) {
 }
 
 // Test polar to Cartesian conversion
-TEST(MathUtilsTest, PolarToCartesian) {
+TEST(MathUtilsTest, polar_to_cartesian) {
   // 0 degrees, range 5
-  Point3D p1 = PolarToCartesian(5.0f, 0.0f);
+  Point3D p1 = polar_to_cartesian(5.0f, 0.0f);
   EXPECT_NEAR(p1.x, 5.0f, 1e-6);
   EXPECT_NEAR(p1.y, 0.0f, 1e-6);
   EXPECT_FLOAT_EQ(p1.z, 0.0f);
 
   // 90 degrees, range 3
-  Point3D p2 = PolarToCartesian(3.0f, M_PI / 2.0f);
+  Point3D p2 = polar_to_cartesian(3.0f, M_PI / 2.0f);
   EXPECT_NEAR(p2.x, 0.0f, 1e-6);
   EXPECT_NEAR(p2.y, 3.0f, 1e-6);
   EXPECT_FLOAT_EQ(p2.z, 0.0f);
 
   // 180 degrees, range 2
-  Point3D p3 = PolarToCartesian(2.0f, M_PI);
+  Point3D p3 = polar_to_cartesian(2.0f, M_PI);
   EXPECT_NEAR(p3.x, -2.0f, 1e-6);
   EXPECT_NEAR(p3.y, 0.0f, 1e-6);
   EXPECT_FLOAT_EQ(p3.z, 0.0f);
 }
 
 // Test angle filtering (normal mode - include inside range)
-TEST(MathUtilsTest, ShouldIncludePointNormalMode) {
+TEST(MathUtilsTest, should_include_pointNormalMode) {
   const float min = 0.0f;
   const float max = M_PI / 2.0f;  // 90 degrees
 
   // Inside range - should include
-  EXPECT_TRUE(ShouldIncludePoint(0.5f, min, max, false));
-  EXPECT_TRUE(ShouldIncludePoint(M_PI / 4.0f, min, max, false));
+  EXPECT_TRUE(should_include_point(0.5f, min, max, false));
+  EXPECT_TRUE(should_include_point(M_PI / 4.0f, min, max, false));
 
   // Outside range - should not include
-  EXPECT_FALSE(ShouldIncludePoint(-0.1f, min, max, false));
-  EXPECT_FALSE(ShouldIncludePoint(M_PI, min, max, false));
+  EXPECT_FALSE(should_include_point(-0.1f, min, max, false));
+  EXPECT_FALSE(should_include_point(M_PI, min, max, false));
 }
 
 // Test angle filtering (inverse mode - include outside range)
-TEST(MathUtilsTest, ShouldIncludePointInverseMode) {
+TEST(MathUtilsTest, should_include_pointInverseMode) {
   const float min = 0.0f;
   const float max = M_PI / 2.0f;  // 90 degrees
 
   // Inside range - should not include (inverse mode)
-  EXPECT_FALSE(ShouldIncludePoint(0.5f, min, max, true));
-  EXPECT_FALSE(ShouldIncludePoint(M_PI / 4.0f, min, max, true));
+  EXPECT_FALSE(should_include_point(0.5f, min, max, true));
+  EXPECT_FALSE(should_include_point(M_PI / 4.0f, min, max, true));
 
   // Outside range - should include (inverse mode)
-  EXPECT_TRUE(ShouldIncludePoint(-0.1f, min, max, true));
-  EXPECT_TRUE(ShouldIncludePoint(M_PI, min, max, true));
+  EXPECT_TRUE(should_include_point(-0.1f, min, max, true));
+  EXPECT_TRUE(should_include_point(M_PI, min, max, true));
 }
 
 // Test degree/radian conversions
 TEST(MathUtilsTest, DegreeRadianConversions) {
-  EXPECT_FLOAT_EQ(DegreesToRadians(0.0f), 0.0f);
-  EXPECT_NEAR(DegreesToRadians(90.0f), M_PI / 2.0f, 1e-6);
-  EXPECT_NEAR(DegreesToRadians(180.0f), M_PI, 1e-6);
-  EXPECT_NEAR(DegreesToRadians(360.0f), 2.0f * M_PI, 1e-6);
+  EXPECT_FLOAT_EQ(degrees_to_radians(0.0f), 0.0f);
+  EXPECT_NEAR(degrees_to_radians(90.0f), M_PI / 2.0f, 1e-6);
+  EXPECT_NEAR(degrees_to_radians(180.0f), M_PI, 1e-6);
+  EXPECT_NEAR(degrees_to_radians(360.0f), 2.0f * M_PI, 1e-6);
 
-  EXPECT_FLOAT_EQ(RadiansToDegrees(0.0f), 0.0f);
-  EXPECT_NEAR(RadiansToDegrees(M_PI / 2.0f), 90.0f, 1e-4);
-  EXPECT_NEAR(RadiansToDegrees(M_PI), 180.0f, 1e-4);
-  EXPECT_NEAR(RadiansToDegrees(2.0f * M_PI), 360.0f, 1e-4);
+  EXPECT_FLOAT_EQ(radians_to_degrees(0.0f), 0.0f);
+  EXPECT_NEAR(radians_to_degrees(M_PI / 2.0f), 90.0f, 1e-4);
+  EXPECT_NEAR(radians_to_degrees(M_PI), 180.0f, 1e-4);
+  EXPECT_NEAR(radians_to_degrees(2.0f * M_PI), 360.0f, 1e-4);
 }
 
 int main(int argc, char** argv) {

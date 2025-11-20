@@ -8,12 +8,15 @@
 #ifndef LASER_SCAN_MERGER_SCAN_MERGER_NODE_HPP_
 #define LASER_SCAN_MERGER_SCAN_MERGER_NODE_HPP_
 
+#include "laser_scan_merger/math_utils.hpp"
+#include "laser_scan_merger/scan_processor.hpp"
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
 
 #include <cstdint>
 #include <memory>
@@ -21,16 +24,12 @@
 #include <string>
 #include <vector>
 
-#include "laser_scan_merger/math_utils.hpp"
-#include "laser_scan_merger/scan_processor.hpp"
-
 namespace laser_scan_merger {
 
-// Configuration for each laser scanner (ROS2-specific parts)
 struct LaserConfig {
   // Topic configuration
   std::string topic;
-  std::string detected_frame_id;  // Auto-detected from scan->header.frame_id
+  std::string frame_id;
 
   // Angle filtering (degrees)
   float angle_min{-181.0F};
@@ -42,8 +41,8 @@ struct LaserConfig {
   uint8_t b{0};
 
   // Processing flags
-  bool show{true};     // Enable/disable this laser
-  bool flip{false};    // Flip the scan data
+  bool show{true};      // Enable/disable this laser
+  bool flip{false};     // Flip the scan data
   bool inverse{false};  // Inverse the angle filtering logic
 
   // Runtime state
@@ -61,27 +60,6 @@ class ScanMerger : public rclcpp::Node {
   ScanMerger();
 
  private:
-  // Initialization methods
-  void InitializeParams();
-  void RefreshParams();
-  void SetupSubscribers();
-
-  // Parameter loading
-  void LoadLaserParams(int laser_index);
-
-  // Transform management
-  bool CacheTransform(size_t laser_idx);
-  bool LookupTransform(size_t laser_idx, math::Transform3D& transform);
-
-  // Callback handlers
-  void ScanCallback(size_t laser_index,
-                    sensor_msgs::msg::LaserScan::SharedPtr msg);
-
-  // Publishing and processing
-  void PublishMergedCloud();
-  void ProcessLaserScan(const LaserConfig& laser, size_t laser_idx,
-                        std::vector<ColoredPoint>& all_points);
-
   // Configuration parameters
   std::string cloud_topic_;
   std::string cloud_frame_id_;
@@ -117,6 +95,27 @@ class ScanMerger : public rclcpp::Node {
 
   // Core processor (testable, zero ROS2 dependencies)
   LaserScanProcessor scan_processor_;
+
+  // Initialization methods
+  void initialize_params();
+  void refresh_params();
+  void setup_subscribers();
+
+  // Parameter loading
+  void load_laser_params(int laser_index);
+
+  // Transform management
+  bool cache_transform(size_t laser_idx);
+  bool lookup_transform(size_t laser_idx, math::Transform3D& transform);
+
+  // Callback handlers
+  void scan_callback(size_t laser_index, sensor_msgs::msg::LaserScan::SharedPtr msg);
+
+  // Publishing and processing
+  void publish_merged_cloud();
+  void process_laser_scan(const LaserConfig& laser, size_t laser_idx,
+                          std::vector<ColoredPoint>& all_points);
+
 };
 
 }  // namespace laser_scan_merger

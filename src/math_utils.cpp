@@ -1,9 +1,9 @@
 #include "laser_scan_merger/math_utils.hpp"
 
-namespace laser_scan_merger {
-namespace math {
 
-Transform3D QuaternionToTransform(float qx, float qy, float qz, float qw,
+namespace laser_scan_merger::math {
+
+Transform3D quaternion_to_transform(float qx, float qy, float qz, float qw,
                                    float tx, float ty, float tz) {
   Transform3D transform;
 
@@ -30,8 +30,8 @@ Transform3D QuaternionToTransform(float qx, float qy, float qz, float qw,
   return transform;
 }
 
-Point3D ApplyTransform(const Transform3D& transform, float x, float y, float z) {
-  Point3D result;
+Point3D apply_transform(const Transform3D& transform, float x, float y, float z) {
+  Point3D result{};
 
   // Apply rotation matrix and translation
   // result = R * point + t
@@ -42,19 +42,19 @@ Point3D ApplyTransform(const Transform3D& transform, float x, float y, float z) 
   return result;
 }
 
-Point3D ApplyTransform(const Transform3D& transform, const Point3D& point) {
-  return ApplyTransform(transform, point.x, point.y, point.z);
+Point3D apply_transform(const Transform3D& transform, const Point3D& point) {
+  return apply_transform(transform, point.x, point.y, point.z);
 }
 
-Point3D PolarToCartesian(float range, float angle) {
-  Point3D result;
+Point3D polar_to_cartesian(float range, float angle) {
+  Point3D result{};
   result.x = range * std::cos(angle);
   result.y = range * std::sin(angle);
   result.z = 0.0f;  // Laser scans are 2D
   return result;
 }
 
-bool ShouldIncludePoint(float angle_rad, float filter_min_rad,
+bool should_include_point(float angle_rad, float filter_min_rad,
                         float filter_max_rad, bool inverse) {
   bool outside_range = (angle_rad < filter_min_rad) || (angle_rad > filter_max_rad);
 
@@ -64,5 +64,5 @@ bool ShouldIncludePoint(float angle_rad, float filter_min_rad,
   return inverse ? outside_range : !outside_range;
 }
 
-}  // namespace math
-}  // namespace laser_scan_merger
+} // namespace laser_scan_merger::math
+

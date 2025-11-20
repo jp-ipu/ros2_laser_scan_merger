@@ -50,7 +50,7 @@ class LaserScanProcessor {
   //   - Vector of colored 3D points in target frame
   //
   // This is the CORE ALGORITHM - 100% unit testable
-  std::vector<ColoredPoint> ProcessScan(const ScanData& scan,
+  std::vector<ColoredPoint> process_scan(const ScanData& scan,
                                          const math::Transform3D& transform,
                                          const ScanProcessingConfig& config) const;
 
@@ -62,10 +62,10 @@ class LaserScanProcessor {
     size_t output_points{0};
   };
 
-  const Statistics& GetLastStatistics() const { return last_stats_; }
+  const Statistics& get_last_statistics() const { return last_stats_; }
 
  private:
-  mutable Statistics last_stats_;  // Updated during ProcessScan
+  mutable Statistics last_stats_;  // Updated during process_scan
 };
 
 }  // namespace laser_scan_merger

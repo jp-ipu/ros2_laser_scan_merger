@@ -2,8 +2,6 @@
 
 A modern C++20 ROS2 package to merge multiple laser scan topics into a single virtual laser scan using TF2 transforms. Features a testable architecture with core algorithms separated from ROS2 infrastructure.
 
-![laser scan merger configurator](https://github.com/mich1342/ros2_laser_scan_merger/blob/main/LidarCallbration.png)
-
 ## Key Features
 
 ✨ **Modern Architecture**
@@ -193,12 +191,12 @@ Tests run **without ROS2 nodes** for fast execution.
 ### Testable Core Library (`laser_scan_merger_core`)
 **No ROS2 dependencies** - pure C++20 algorithms:
 - `math_utils.cpp` - Pure math functions
-  - QuaternionToTransform()
-  - ApplyTransform()
-  - PolarToCartesian()
-  - ShouldIncludePoint()
+  - quaternion_to_transform()
+  - apply_transform()
+  - polar_to_cartesian()
+  - should_include_point()
 - `scan_processor.cpp` - Core scan processing
-  - LaserScanProcessor::ProcessScan()
+  - LaserScanProcessor::process_scan()
 
 ### ROS2 Wrapper (`ros2_laser_scan_merger` node)
 Thin adapter handling:
