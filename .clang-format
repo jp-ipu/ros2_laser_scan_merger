@@ -1,0 +1,70 @@
+---
+# Google C++ Style Guide configuration
+BasedOnStyle: Google
+Language: Cpp
+Standard: c++20
+
+# Indentation
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ColumnLimit: 100
+
+# Alignment
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlines: Left
+AlignOperands: true
+AlignTrailingComments: true
+
+# Breaks
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: true
+BreakBeforeBraces: Attach
+BreakConstructorInitializers: BeforeColon
+
+# Include sorting
+IncludeBlocks: Regroup
+IncludeCategories:
+  # ROS2 headers
+  - Regex:           '^<(rclcpp|sensor_msgs|geometry_msgs|tf2)/'
+    Priority:        2
+  # PCL headers
+  - Regex:           '^<pcl'
+    Priority:        3
+  # Standard library headers
+  - Regex:           '^<[a-z_]+>'
+    Priority:        4
+  # Other headers
+  - Regex:           '.*'
+    Priority:        1
+
+# Spacing
+SpaceAfterCStyleCast: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+
+# Pointers and references
+DerivePointerAlignment: false
+PointerAlignment: Left
+
+# Namespaces
+NamespaceIndentation: None
+
+# Comments
+ReflowComments: true
+
+# Penalties (for line breaking decisions)
+PenaltyBreakBeforeFirstCallParameter: 19
+PenaltyBreakComment: 300
+PenaltyBreakString: 1000
+PenaltyExcessCharacter: 1000000
+...

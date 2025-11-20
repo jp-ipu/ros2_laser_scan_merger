@@ -15,6 +15,7 @@
     # General Settings
     # ============================================================================
     use_sim_time: false  # Set to true when using simulation time (e.g., from bag files)
+    publish_rate: 30.0   # Publishing rate in Hz for merged point cloud
 
     # ============================================================================
     # Number of Laser Scanners
