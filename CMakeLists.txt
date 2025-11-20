@@ -21,19 +21,15 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(pcl_conversions REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(rcutils REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
-find_package(Boost REQUIRED COMPONENTS system)
-find_package(PCL REQUIRED)
 
 include_directories(
   include
-  ${PCL_INCLUDE_DIRS}
 )
 
 # Build testable core library (no ROS2 dependencies)
@@ -49,11 +45,10 @@ target_include_directories(laser_scan_merger_core PUBLIC
 # Build ROS2 node executable
 add_executable(ros2_laser_scan_merger src/main.cpp)
 target_link_libraries(ros2_laser_scan_merger laser_scan_merger_core)
-ament_target_dependencies(ros2_laser_scan_merger 
-  rclcpp 
-  std_msgs 
+ament_target_dependencies(ros2_laser_scan_merger
+  rclcpp
+  std_msgs
   sensor_msgs
-  pcl_conversions
   rcl_interfaces
   rcutils
   tf2_geometry_msgs

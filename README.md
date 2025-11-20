@@ -7,9 +7,10 @@ A modern C++20 ROS2 package to merge multiple laser scan topics into a single vi
 ## Key Features
 
 ✨ **Modern Architecture**
-- Testable core library with zero ROS2 dependencies
+- Testable core library with zero external dependencies (no PCL required)
 - Comprehensive unit tests for all algorithms
 - Clean separation between business logic and ROS2 integration
+- Uses pure ROS2 sensor_msgs for point cloud construction
 
 🚀 **Performance Optimized**
 - TF2 transform caching for ~1000x speedup on fixed geometry
@@ -200,6 +201,7 @@ Thin adapter handling:
 - TF2 lookups and caching
 - Parameter loading
 - ROS2 logging
+- Direct PointCloud2 construction (no PCL dependency)
 
 ### Benefits
 - 🧪 100% unit testable core algorithms
@@ -256,6 +258,7 @@ require_all_scans: true
 | Testable Core | ✅ 100% unit tested | ❌ Tightly coupled |
 | Thread Safe | ✅ Mutex protected | ⚠️ Limited |
 | Modern C++ | ✅ C++20 | ⚠️ C++11 |
+| No PCL Dependency | ✅ Pure ROS2 msgs | ❌ Requires PCL |
 | Auto Frame Detection | ✅ From scan header | ❌ Manual config |
 | Flexible Sync | ✅ Timer + triggered | ⚠️ Timer only |
 

@@ -7,10 +7,10 @@
 //   Refactored for TF2-only approach with cached transforms for performance
 //   Optimized based on ira_laser_tools analysis
 //   Refactored for testability: core algorithms extracted to separate classes
+//   Removed PCL dependency: uses ROS2 sensor_msgs directly (zero external dependencies)
 //
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
-#include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -213,7 +213,7 @@ class ScanMerger : public rclcpp::Node {
   void PublishMergedCloud() {
     std::lock_guard<std::mutex> lock(lasers_mutex_);
 
-    pcl::PointCloud<pcl::PointXYZRGB> cloud;
+    std::vector<ColoredPoint> all_points;
     rclcpp::Time latest_timestamp = this->now();
     rclcpp::Time oldest_timestamp = this->now();
     bool has_valid_scan = false;
@@ -257,7 +257,7 @@ class ScanMerger : public rclcpp::Node {
       }
 
       // Process scan with TF (cached or dynamic)
-      ProcessLaserScan(laser, laser_idx, cloud);
+      ProcessLaserScan(laser, laser_idx, all_points);
     }
 
     if (!has_valid_scan) {
@@ -274,12 +274,49 @@ class ScanMerger : public rclcpp::Node {
       }
     }
 
-    // Publish the merged point cloud
+    // Build PointCloud2 message directly (no PCL dependency)
     auto pc2_msg = std::make_shared<sensor_msgs::msg::PointCloud2>();
-    pcl::toROSMsg(cloud, *pc2_msg);
+
+    // Set header
     pc2_msg->header.frame_id = cloud_frame_id_;
     pc2_msg->header.stamp = latest_timestamp;
     pc2_msg->is_dense = false;
+
+    // Set dimensions
+    pc2_msg->height = 1;
+    pc2_msg->width = all_points.size();
+
+    // Define PointCloud2 fields (XYZRGB)
+    sensor_msgs::PointCloud2Modifier modifier(*pc2_msg);
+    modifier.setPointCloud2Fields(6,
+      "x", 1, sensor_msgs::msg::PointField::FLOAT32,
+      "y", 1, sensor_msgs::msg::PointField::FLOAT32,
+      "z", 1, sensor_msgs::msg::PointField::FLOAT32,
+      "rgb", 1, sensor_msgs::msg::PointField::FLOAT32,
+      "r", 1, sensor_msgs::msg::PointField::UINT8,
+      "g", 1, sensor_msgs::msg::PointField::UINT8);
+    modifier.resize(all_points.size());
+
+    // Create iterators for efficient data population
+    sensor_msgs::PointCloud2Iterator<float> iter_x(*pc2_msg, "x");
+    sensor_msgs::PointCloud2Iterator<float> iter_y(*pc2_msg, "y");
+    sensor_msgs::PointCloud2Iterator<float> iter_z(*pc2_msg, "z");
+    sensor_msgs::PointCloud2Iterator<uint8_t> iter_r(*pc2_msg, "r");
+    sensor_msgs::PointCloud2Iterator<uint8_t> iter_g(*pc2_msg, "g");
+    sensor_msgs::PointCloud2Iterator<uint8_t> iter_b(*pc2_msg, "b");
+
+    // Copy points
+    for (const auto& point : all_points) {
+      *iter_x = point.x;
+      *iter_y = point.y;
+      *iter_z = point.z;
+      *iter_r = point.r;
+      *iter_g = point.g;
+      *iter_b = point.b;
+
+      ++iter_x; ++iter_y; ++iter_z; ++iter_r; ++iter_g; ++iter_b;
+    }
+
     point_cloud_pub_->publish(*pc2_msg);
 
     if (stale_scan_count > 0) {
@@ -289,7 +326,7 @@ class ScanMerger : public rclcpp::Node {
   }
 
   void ProcessLaserScan(const LaserConfig& laser, size_t laser_idx,
-                        pcl::PointCloud<pcl::PointXYZRGB>& cloud) {
+                        std::vector<ColoredPoint>& all_points) {
     const auto& scan = laser.last_scan;
 
     // Get transform (cached or lookup)
@@ -329,17 +366,8 @@ class ScanMerger : public rclcpp::Node {
     // Process scan using testable core algorithm
     std::vector<ColoredPoint> points = scan_processor_.ProcessScan(scan_data, transform, config);
 
-    // Convert to PCL format
-    for (const auto& point : points) {
-      pcl::PointXYZRGB pcl_point;
-      pcl_point.x = point.x;
-      pcl_point.y = point.y;
-      pcl_point.z = point.z;
-      pcl_point.r = point.r;
-      pcl_point.g = point.g;
-      pcl_point.b = point.b;
-      cloud.points.push_back(pcl_point);
-    }
+    // Accumulate points from this laser
+    all_points.insert(all_points.end(), points.begin(), points.end());
   }
 
   bool LookupTransform(size_t laser_idx, math::Transform3D& transform) {
