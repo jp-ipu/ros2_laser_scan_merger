@@ -52,6 +52,20 @@
     pointCloutFrameId: laser         # Frame ID for the merged point cloud (TF target frame)
 
     # ============================================================================
+    # Global Laser Parameters (applies to all lasers of the same type)
+    # ============================================================================
+    # These parameters are shared across all laser scanners since we assume
+    # all lidars are the same model/type
+
+    # Angular Range Filtering (in degrees)
+    angle_min: -4.0                  # Minimum angle to include from all lasers
+    angle_max: 94.0                  # Maximum angle to include from all lasers
+
+    # Processing Flags
+    flip: false                      # Flip the laser scan data
+    inverse: true                    # Inverse the angle direction
+
+    # ============================================================================
     # Laser Scanner 0 Configuration
     # ============================================================================
     laser0:
@@ -62,14 +76,6 @@
 
       # Enable/disable this laser in the merged output
       show: true
-
-      # Angular Range Filtering (in degrees)
-      angle_min: -4.0                 # Minimum angle to include from laser
-      angle_max: 94.0                 # Maximum angle to include from laser
-
-      # Processing Flags
-      flip: false                     # Flip the laser scan data
-      inverse: true                   # Inverse the angle direction
 
       # Visualization Color (RGB 0-255)
       r: 255                          # Red channel
@@ -87,14 +93,6 @@
       # Enable/disable this laser in the merged output
       show: true
 
-      # Angular Range Filtering (in degrees)
-      angle_min: 0.0                  # Minimum angle to include from laser
-      angle_max: 94.0                 # Maximum angle to include from laser
-
-      # Processing Flags
-      flip: false                     # Flip the laser scan data
-      inverse: true                   # Inverse the angle direction
-
       # Visualization Color (RGB 0-255)
       r: 0                            # Red channel
       g: 0                            # Green channel
@@ -107,16 +105,12 @@
     # Remember to set num_lasers to 3 or higher!
     #
     # laser2:
-    #   topic: /lidar_3/scan
-    #   source_frame: lidar_3
-    #   show: true
-    #   angle_min: -90.0
-    #   angle_max: 90.0
-    #   flip: false
-    #   inverse: false
-    #   r: 0
-    #   g: 255
-    #   b: 0
+    #   topic: /lidar_3/scan           # Input topic (UNIQUE per laser)
+    #   source_frame: lidar_3          # TF frame (UNIQUE per laser)
+    #   show: true                     # Enable/disable (can vary per laser)
+    #   r: 0                           # Red channel (can vary for visualization)
+    #   g: 255                         # Green channel
+    #   b: 0                           # Blue channel (displays as green)
 
     # ============================================================================
     # QoS Settings
@@ -231,12 +225,13 @@
 # N-LASER SUPPORT:
 # ================
 # - Supports any number of laser scanners (set via num_lasers)
-# - Each laser configured as laser0, laser1, laser2, etc.
-# - Each can have different:
-#   * source_frame (position/orientation via TF)
-#   * angle_min/angle_max (angular filtering)
-#   * flip, inverse (data processing)
-#   * RGB color (visualization)
+# - All lasers assumed to be the SAME TYPE/MODEL
+# - Global parameters (shared): angle_min, angle_max, flip, inverse
+# - Per-laser parameters (unique):
+#   * topic - Input scan topic (MUST be different)
+#   * source_frame - TF frame (MUST be different for different positions)
+#   * show - Enable/disable this laser (optional, default: true)
+#   * r, g, b - Visualization color (optional, for distinguishing lasers)
 #
 # ANGLE UNITS:
 # ============

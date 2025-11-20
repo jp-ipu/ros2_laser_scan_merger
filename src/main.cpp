@@ -426,6 +426,12 @@ class ScanMerger : public rclcpp::Node {
     // TF parameters
     this->declare_parameter("use_fixed_transforms", true);
     this->declare_parameter("tf_timeout", 1.0);
+
+    // Global laser parameters (shared by all lasers of the same type)
+    this->declare_parameter("angle_min", -181.0);
+    this->declare_parameter("angle_max", 181.0);
+    this->declare_parameter("flip", false);
+    this->declare_parameter("inverse", false);
   }
 
   void RefreshParams() {
@@ -442,6 +448,14 @@ class ScanMerger : public rclcpp::Node {
     use_fixed_transforms_ = this->get_parameter("use_fixed_transforms").as_bool();
     tf_timeout_ = this->get_parameter("tf_timeout").as_double();
 
+    // Global laser parameters (shared by all lasers of the same type)
+    global_angle_min_ = static_cast<float>(
+        this->get_parameter("angle_min").as_double());
+    global_angle_max_ = static_cast<float>(
+        this->get_parameter("angle_max").as_double());
+    global_flip_ = this->get_parameter("flip").as_bool();
+    global_inverse_ = this->get_parameter("inverse").as_bool();
+
     // Resize laser vector if needed
     if (lasers_.size() != static_cast<size_t>(num_lasers)) {
       lasers_.resize(num_lasers);
@@ -456,30 +470,29 @@ class ScanMerger : public rclcpp::Node {
   void LoadLaserParams(int laser_index) {
     std::string prefix = "laser" + std::to_string(laser_index);
 
-    // Declare parameters if not already declared
+    // Declare per-laser parameters if not already declared
+    // Note: angle_min, angle_max, flip, inverse are now global parameters
     if (!this->has_parameter(prefix + ".topic")) {
       this->declare_parameter(prefix + ".topic",
                               "/scan_" + std::to_string(laser_index));
       this->declare_parameter(prefix + ".source_frame",
                               "laser_" + std::to_string(laser_index));
-      this->declare_parameter(prefix + ".angle_min", -181.0);
-      this->declare_parameter(prefix + ".angle_max", 181.0);
       this->declare_parameter(prefix + ".r", 255);
       this->declare_parameter(prefix + ".g", 0);
       this->declare_parameter(prefix + ".b", 0);
       this->declare_parameter(prefix + ".show", true);
-      this->declare_parameter(prefix + ".flip", false);
-      this->declare_parameter(prefix + ".inverse", false);
     }
 
-    // Get parameters
+    // Get per-laser parameters
     auto& laser = lasers_[laser_index];
     laser.topic = this->get_parameter(prefix + ".topic").as_string();
     laser.source_frame = this->get_parameter(prefix + ".source_frame").as_string();
-    laser.angle_min = static_cast<float>(
-        this->get_parameter(prefix + ".angle_min").as_double());
-    laser.angle_max = static_cast<float>(
-        this->get_parameter(prefix + ".angle_max").as_double());
+
+    // Use global parameters (shared by all lasers of the same type)
+    laser.angle_min = global_angle_min_;
+    laser.angle_max = global_angle_max_;
+    laser.flip = global_flip_;
+    laser.inverse = global_inverse_;
 
     int r_val = this->get_parameter(prefix + ".r").as_int();
     int g_val = this->get_parameter(prefix + ".g").as_int();
@@ -489,8 +502,6 @@ class ScanMerger : public rclcpp::Node {
     laser.b = static_cast<uint8_t>(b_val);
 
     laser.show = this->get_parameter(prefix + ".show").as_bool();
-    laser.flip = this->get_parameter(prefix + ".flip").as_bool();
-    laser.inverse = this->get_parameter(prefix + ".inverse").as_bool();
   }
 
   // Configuration
@@ -503,6 +514,12 @@ class ScanMerger : public rclcpp::Node {
   bool skip_stale_scans_{false};
   bool use_fixed_transforms_{true};
   double tf_timeout_{1.0};
+
+  // Global laser parameters (shared by all lasers of the same type)
+  float global_angle_min_{-181.0};
+  float global_angle_max_{181.0};
+  bool global_flip_{false};
+  bool global_inverse_{false};
 
   // Laser configuration
   std::vector<LaserConfig> lasers_;
