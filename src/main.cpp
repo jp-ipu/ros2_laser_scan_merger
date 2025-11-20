@@ -4,8 +4,8 @@
 //   24/2/2022
 //
 //   Modified to support N laser scans (dynamic number of inputs)
-//   Refactored for best practices, thread safety, and proper scan synchronization
-//   Improved based on ira_laser_tools analysis
+//   Refactored for TF2-only approach with cached transforms for performance
+//   Optimized based on ira_laser_tools analysis
 //
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -29,14 +29,18 @@
 
 namespace laser_scan_merger {
 
+// Cached transform data for performance
+struct CachedTransform {
+  float r00, r01, r02, tx;  // Rotation matrix row 0 + translation x
+  float r10, r11, r12, ty;  // Rotation matrix row 1 + translation y
+  float r20, r21, r22, tz;  // Rotation matrix row 2 + translation z
+  bool valid{false};
+};
+
 // Configuration for each laser scanner
 struct LaserConfig {
   std::string topic;
-  std::string frame_id;  // TF frame ID (optional, for TF mode)
-  float x_offset{0.0f};
-  float y_offset{0.0f};
-  float z_offset{0.0f};
-  float alpha{0.0f};         // Rotation angle in degrees
+  std::string source_frame;  // TF frame to transform from
   float angle_min{-181.0f};  // Minimum angle to include (degrees)
   float angle_max{181.0f};   // Maximum angle to include (degrees)
   uint8_t r{255};
@@ -50,11 +54,17 @@ struct LaserConfig {
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr subscriber;
   rclcpp::Time last_update_time;
   bool data_received{false};  // For synchronization
+
+  // Cached transform (for use_fixed_transforms mode)
+  CachedTransform cached_transform;
 };
 
 class ScanMerger : public rclcpp::Node {
  public:
-  ScanMerger() : Node("ros2_laser_scan_merger"), tf_buffer_(this->get_clock()), tf_listener_(tf_buffer_) {
+  ScanMerger()
+      : Node("ros2_laser_scan_merger"),
+        tf_buffer_(this->get_clock()),
+        tf_listener_(tf_buffer_) {
     InitializeParams();
     RefreshParams();
     SetupSubscribers();
@@ -69,18 +79,32 @@ class ScanMerger : public rclcpp::Node {
           std::bind(&ScanMerger::PublishMergedCloud, this));
     }
 
-    RCLCPP_INFO(this->get_logger(), "Laser Scan Merger initialized with %zu laser(s)",
+    RCLCPP_INFO(this->get_logger(),
+                "Laser Scan Merger initialized with %zu laser(s)",
                 lasers_.size());
-    RCLCPP_INFO(this->get_logger(), "  Use TF transforms: %s", use_tf_transforms_ ? "true" : "false");
+    RCLCPP_INFO(this->get_logger(), "  Target frame: %s",
+                cloud_frame_id_.c_str());
+    RCLCPP_INFO(this->get_logger(), "  Fixed transforms: %s (TF caching %s)",
+                use_fixed_transforms_ ? "true" : "false",
+                use_fixed_transforms_ ? "ENABLED" : "disabled");
     RCLCPP_INFO(this->get_logger(), "  Scan synchronization: %s",
                 require_all_scans_ ? "enabled (wait for all)" : "disabled");
     RCLCPP_INFO(this->get_logger(), "  Publishing mode: %s",
                 use_scan_triggering_ ? "scan-triggered" : "timer-based");
-    RCLCPP_INFO(this->get_logger(), "  Max scan age: %.2f seconds", max_scan_age_);
+    RCLCPP_INFO(this->get_logger(), "  Max scan age: %.2f seconds",
+                max_scan_age_);
 
     for (size_t i = 0; i < lasers_.size(); i++) {
-      RCLCPP_INFO(this->get_logger(), "  Laser %zu: topic=%s, enabled=%s", i,
-                  lasers_[i].topic.c_str(), lasers_[i].show ? "true" : "false");
+      RCLCPP_INFO(this->get_logger(),
+                  "  Laser %zu: topic=%s, frame=%s, enabled=%s", i,
+                  lasers_[i].topic.c_str(), lasers_[i].source_frame.c_str(),
+                  lasers_[i].show ? "true" : "false");
+    }
+
+    // Cache transforms if using fixed mode
+    if (use_fixed_transforms_) {
+      RCLCPP_INFO(this->get_logger(), "Caching fixed transforms...");
+      CacheAllTransforms();
     }
   }
 
@@ -96,6 +120,66 @@ class ScanMerger : public rclcpp::Node {
               [this, i](const sensor_msgs::msg::LaserScan::SharedPtr msg) {
                 this->ScanCallback(i, msg);
               });
+    }
+  }
+
+  void CacheAllTransforms() {
+    // Wait a bit for TF tree to be ready
+    rclcpp::sleep_for(std::chrono::milliseconds(500));
+
+    for (size_t i = 0; i < lasers_.size(); i++) {
+      if (!lasers_[i].show) {
+        continue;
+      }
+
+      if (CacheTransform(i)) {
+        RCLCPP_INFO(this->get_logger(), "  ✓ Cached transform for laser %zu (%s -> %s)",
+                    i, lasers_[i].source_frame.c_str(), cloud_frame_id_.c_str());
+      } else {
+        RCLCPP_WARN(this->get_logger(),
+                    "  ✗ Failed to cache transform for laser %zu (%s -> %s)",
+                    i, lasers_[i].source_frame.c_str(), cloud_frame_id_.c_str());
+        RCLCPP_WARN(this->get_logger(),
+                    "    Will attempt dynamic lookup at runtime");
+      }
+    }
+  }
+
+  bool CacheTransform(size_t laser_idx) {
+    auto& laser = lasers_[laser_idx];
+
+    try {
+      auto transform = tf_buffer_.lookupTransform(
+          cloud_frame_id_, laser.source_frame, tf2::TimePointZero,
+          tf2::durationFromSec(tf_timeout_));
+
+      // Extract translation
+      laser.cached_transform.tx = transform.transform.translation.x;
+      laser.cached_transform.ty = transform.transform.translation.y;
+      laser.cached_transform.tz = transform.transform.translation.z;
+
+      // Convert quaternion to rotation matrix
+      float qx = transform.transform.rotation.x;
+      float qy = transform.transform.rotation.y;
+      float qz = transform.transform.rotation.z;
+      float qw = transform.transform.rotation.w;
+
+      laser.cached_transform.r00 = 1 - 2 * (qy * qy + qz * qz);
+      laser.cached_transform.r01 = 2 * (qx * qy - qz * qw);
+      laser.cached_transform.r02 = 2 * (qx * qz + qy * qw);
+      laser.cached_transform.r10 = 2 * (qx * qy + qz * qw);
+      laser.cached_transform.r11 = 1 - 2 * (qx * qx + qz * qz);
+      laser.cached_transform.r12 = 2 * (qy * qz - qx * qw);
+      laser.cached_transform.r20 = 2 * (qx * qz - qy * qw);
+      laser.cached_transform.r21 = 2 * (qy * qz + qx * qw);
+      laser.cached_transform.r22 = 1 - 2 * (qx * qx + qy * qy);
+
+      laser.cached_transform.valid = true;
+      return true;
+
+    } catch (const tf2::TransformException& ex) {
+      laser.cached_transform.valid = false;
+      return false;
     }
   }
 
@@ -149,7 +233,8 @@ class ScanMerger : public rclcpp::Node {
     for (size_t laser_idx = 0; laser_idx < lasers_.size(); laser_idx++) {
       const auto& laser = lasers_[laser_idx];
 
-      if (!laser.show || !laser.last_scan || laser.last_scan->ranges.empty()) {
+      if (!laser.show || !laser.last_scan ||
+          laser.last_scan->ranges.empty()) {
         continue;
       }
 
@@ -158,14 +243,16 @@ class ScanMerger : public rclcpp::Node {
       if (scan_age.seconds() > max_scan_age_) {
         stale_scan_count++;
         if (skip_stale_scans_) {
-          RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                               "Skipping stale scan from laser %zu (age: %.3f s)", laser_idx,
-                               scan_age.seconds());
+          RCLCPP_WARN_THROTTLE(
+              this->get_logger(), *this->get_clock(), 1000,
+              "Skipping stale scan from laser %zu (age: %.3f s)", laser_idx,
+              scan_age.seconds());
           continue;
         }
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
-                             "Using stale scan from laser %zu (age: %.3f s)", laser_idx,
-                             scan_age.seconds());
+        RCLCPP_WARN_THROTTLE(
+            this->get_logger(), *this->get_clock(), 5000,
+            "Using stale scan from laser %zu (age: %.3f s)", laser_idx,
+            scan_age.seconds());
       }
 
       has_valid_scan = true;
@@ -179,12 +266,8 @@ class ScanMerger : public rclcpp::Node {
         oldest_timestamp = scan_time;
       }
 
-      // Process scan with either TF or manual transforms
-      if (use_tf_transforms_) {
-        ProcessLaserScanWithTF(laser, laser_idx, cloud);
-      } else {
-        ProcessLaserScanManual(laser, cloud);
-      }
+      // Process scan with TF (cached or dynamic)
+      ProcessLaserScan(laser, laser_idx, cloud);
     }
 
     if (!has_valid_scan) {
@@ -195,9 +278,9 @@ class ScanMerger : public rclcpp::Node {
     if (require_all_scans_) {
       rclcpp::Duration timestamp_spread = latest_timestamp - oldest_timestamp;
       if (timestamp_spread.seconds() > 0.1) {  // 100ms threshold
-        RCLCPP_WARN_THROTTLE(
-            this->get_logger(), *this->get_clock(), 5000,
-            "Large timestamp spread in merged scans: %.3f seconds", timestamp_spread.seconds());
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                             "Large timestamp spread in merged scans: %.3f seconds",
+                             timestamp_spread.seconds());
       }
     }
 
@@ -210,53 +293,31 @@ class ScanMerger : public rclcpp::Node {
     point_cloud_pub_->publish(*pc2_msg);
 
     if (stale_scan_count > 0) {
-      RCLCPP_DEBUG(this->get_logger(), "Published with %d stale scans", stale_scan_count);
+      RCLCPP_DEBUG(this->get_logger(), "Published with %d stale scans",
+                   stale_scan_count);
     }
   }
 
-  void ProcessLaserScanWithTF(const LaserConfig& laser, size_t laser_idx,
-                               pcl::PointCloud<pcl::PointXYZRGB>& cloud) {
+  void ProcessLaserScan(const LaserConfig& laser, size_t laser_idx,
+                        pcl::PointCloud<pcl::PointXYZRGB>& cloud) {
     const auto& scan = laser.last_scan;
 
-    // Determine source frame
-    std::string source_frame = laser.frame_id.empty() ? scan->header.frame_id : laser.frame_id;
+    // Get transform (cached or lookup)
+    CachedTransform transform;
 
-    // Try to get transform
-    geometry_msgs::msg::TransformStamped transform;
-    try {
-      transform = tf_buffer_.lookupTransform(
-          cloud_frame_id_, source_frame, tf2::TimePointZero,
-          tf2::durationFromSec(tf_timeout_));
-    } catch (const tf2::TransformException& ex) {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                           "TF lookup failed for laser %zu: %s. Falling back to manual transform.",
-                           laser_idx, ex.what());
-      ProcessLaserScanManual(laser, cloud);
-      return;
+    if (use_fixed_transforms_ && laser.cached_transform.valid) {
+      // Use cached transform (fast path)
+      transform = laser.cached_transform;
+    } else {
+      // Dynamic TF lookup
+      if (!LookupTransform(laser_idx, transform)) {
+        RCLCPP_WARN_THROTTLE(
+            this->get_logger(), *this->get_clock(), 1000,
+            "TF lookup failed for laser %zu (%s -> %s), skipping scan",
+            laser_idx, laser.source_frame.c_str(), cloud_frame_id_.c_str());
+        return;
+      }
     }
-
-    // Extract rotation and translation from TF
-    float tx = transform.transform.translation.x;
-    float ty = transform.transform.translation.y;
-    float tz = transform.transform.translation.z;
-
-    // Convert quaternion to rotation matrix (simplified for 2D case)
-    // For full 3D support, would need proper quaternion to matrix conversion
-    float qx = transform.transform.rotation.x;
-    float qy = transform.transform.rotation.y;
-    float qz = transform.transform.rotation.z;
-    float qw = transform.transform.rotation.w;
-
-    // Rotation matrix elements (for 3D rotation)
-    float r00 = 1 - 2 * (qy * qy + qz * qz);
-    float r01 = 2 * (qx * qy - qz * qw);
-    float r02 = 2 * (qx * qz + qy * qw);
-    float r10 = 2 * (qx * qy + qz * qw);
-    float r11 = 1 - 2 * (qx * qx + qz * qz);
-    float r12 = 2 * (qy * qz - qx * qw);
-    float r20 = 2 * (qx * qz - qy * qw);
-    float r21 = 2 * (qy * qz + qx * qw);
-    float r22 = 1 - 2 * (qx * qx + qy * qy);
 
     // Process scan points
     float angle_min = scan->angle_min;
@@ -298,9 +359,12 @@ class ScanMerger : public rclcpp::Node {
 
       // Apply 3D TF transform
       pcl::PointXYZRGB point;
-      point.x = r00 * local_x + r01 * local_y + r02 * local_z + tx;
-      point.y = r10 * local_x + r11 * local_y + r12 * local_z + ty;
-      point.z = r20 * local_x + r21 * local_y + r22 * local_z + tz;
+      point.x = transform.r00 * local_x + transform.r01 * local_y +
+                transform.r02 * local_z + transform.tx;
+      point.y = transform.r10 * local_x + transform.r11 * local_y +
+                transform.r12 * local_z + transform.ty;
+      point.z = transform.r20 * local_x + transform.r21 * local_y +
+                transform.r22 * local_z + transform.tz;
       point.r = laser.r;
       point.g = laser.g;
       point.b = laser.b;
@@ -310,61 +374,40 @@ class ScanMerger : public rclcpp::Node {
     }
   }
 
-  void ProcessLaserScanManual(const LaserConfig& laser,
-                               pcl::PointCloud<pcl::PointXYZRGB>& cloud) const {
-    const auto& scan = laser.last_scan;
+  bool LookupTransform(size_t laser_idx, CachedTransform& transform) {
+    const auto& laser = lasers_[laser_idx];
 
-    float angle_min = scan->angle_min;
-    float angle_max = scan->angle_max;
+    try {
+      auto tf_transform = tf_buffer_.lookupTransform(
+          cloud_frame_id_, laser.source_frame, tf2::TimePointZero,
+          tf2::durationFromSec(tf_timeout_));
 
-    if (angle_min > angle_max) {
-      std::swap(angle_min, angle_max);
-    }
+      // Extract translation
+      transform.tx = tf_transform.transform.translation.x;
+      transform.ty = tf_transform.transform.translation.y;
+      transform.tz = tf_transform.transform.translation.z;
 
-    const float alpha_rad = laser.alpha * M_PI / 180.0f;
-    const float cos_alpha = std::cos(alpha_rad);
-    const float sin_alpha = std::sin(alpha_rad);
-    const float filter_min_rad = laser.angle_min * M_PI / 180.0f;
-    const float filter_max_rad = laser.angle_max * M_PI / 180.0f;
+      // Convert quaternion to rotation matrix
+      float qx = tf_transform.transform.rotation.x;
+      float qy = tf_transform.transform.rotation.y;
+      float qz = tf_transform.transform.rotation.z;
+      float qw = tf_transform.transform.rotation.w;
 
-    size_t num_points = scan->ranges.size();
-    float current_angle = angle_min;
+      transform.r00 = 1 - 2 * (qy * qy + qz * qz);
+      transform.r01 = 2 * (qx * qy - qz * qw);
+      transform.r02 = 2 * (qx * qz + qy * qw);
+      transform.r10 = 2 * (qx * qy + qz * qw);
+      transform.r11 = 1 - 2 * (qx * qx + qz * qz);
+      transform.r12 = 2 * (qy * qz - qx * qw);
+      transform.r20 = 2 * (qx * qz - qy * qw);
+      transform.r21 = 2 * (qy * qz + qx * qw);
+      transform.r22 = 1 - 2 * (qx * qx + qy * qy);
 
-    for (size_t i = 0; i < num_points; ++i) {
-      size_t index = laser.flip ? (num_points - 1 - i) : i;
-      float range = scan->ranges[index];
+      transform.valid = true;
+      return true;
 
-      if (!std::isfinite(range) || range <= 0.0f) {
-        current_angle += scan->angle_increment;
-        continue;
-      }
-
-      // Apply angle filtering
-      bool outside_range =
-          (current_angle < filter_min_rad) || (current_angle > filter_max_rad);
-      bool include_point =
-          (outside_range && laser.inverse) || (!outside_range && !laser.inverse);
-
-      if (!include_point) {
-        current_angle += scan->angle_increment;
-        continue;
-      }
-
-      // Convert polar to Cartesian (in laser frame)
-      float local_x = range * std::cos(current_angle);
-      float local_y = range * std::sin(current_angle);
-
-      // Apply 2D rotation and translation
-      pcl::PointXYZRGB point;
-      point.x = local_x * cos_alpha - local_y * sin_alpha + laser.x_offset;
-      point.y = local_x * sin_alpha + local_y * cos_alpha + laser.y_offset;
-      point.z = laser.z_offset;
-      point.r = laser.r;
-      point.g = laser.g;
-      point.b = laser.b;
-
-      cloud.points.push_back(point);
-      current_angle += scan->angle_increment;
+    } catch (const tf2::TransformException& ex) {
+      return false;
     }
   }
 
@@ -381,8 +424,8 @@ class ScanMerger : public rclcpp::Node {
     this->declare_parameter("skip_stale_scans", false);
 
     // TF parameters
-    this->declare_parameter("use_tf_transforms", false);
-    this->declare_parameter("tf_timeout", 0.1);
+    this->declare_parameter("use_fixed_transforms", true);
+    this->declare_parameter("tf_timeout", 1.0);
   }
 
   void RefreshParams() {
@@ -396,7 +439,7 @@ class ScanMerger : public rclcpp::Node {
     max_scan_age_ = this->get_parameter("max_scan_age").as_double();
     skip_stale_scans_ = this->get_parameter("skip_stale_scans").as_bool();
 
-    use_tf_transforms_ = this->get_parameter("use_tf_transforms").as_bool();
+    use_fixed_transforms_ = this->get_parameter("use_fixed_transforms").as_bool();
     tf_timeout_ = this->get_parameter("tf_timeout").as_double();
 
     // Resize laser vector if needed
@@ -415,12 +458,10 @@ class ScanMerger : public rclcpp::Node {
 
     // Declare parameters if not already declared
     if (!this->has_parameter(prefix + ".topic")) {
-      this->declare_parameter(prefix + ".topic", "/scan_" + std::to_string(laser_index));
-      this->declare_parameter(prefix + ".frame_id", "");  // Empty = use scan frame_id
-      this->declare_parameter(prefix + ".x_offset", 0.0);
-      this->declare_parameter(prefix + ".y_offset", 0.0);
-      this->declare_parameter(prefix + ".z_offset", 0.0);
-      this->declare_parameter(prefix + ".alpha", 0.0);
+      this->declare_parameter(prefix + ".topic",
+                              "/scan_" + std::to_string(laser_index));
+      this->declare_parameter(prefix + ".source_frame",
+                              "laser_" + std::to_string(laser_index));
       this->declare_parameter(prefix + ".angle_min", -181.0);
       this->declare_parameter(prefix + ".angle_max", 181.0);
       this->declare_parameter(prefix + ".r", 255);
@@ -434,15 +475,7 @@ class ScanMerger : public rclcpp::Node {
     // Get parameters
     auto& laser = lasers_[laser_index];
     laser.topic = this->get_parameter(prefix + ".topic").as_string();
-    laser.frame_id = this->get_parameter(prefix + ".frame_id").as_string();
-    laser.x_offset = static_cast<float>(
-        this->get_parameter(prefix + ".x_offset").as_double());
-    laser.y_offset = static_cast<float>(
-        this->get_parameter(prefix + ".y_offset").as_double());
-    laser.z_offset = static_cast<float>(
-        this->get_parameter(prefix + ".z_offset").as_double());
-    laser.alpha = static_cast<float>(
-        this->get_parameter(prefix + ".alpha").as_double());
+    laser.source_frame = this->get_parameter(prefix + ".source_frame").as_string();
     laser.angle_min = static_cast<float>(
         this->get_parameter(prefix + ".angle_min").as_double());
     laser.angle_max = static_cast<float>(
@@ -468,8 +501,8 @@ class ScanMerger : public rclcpp::Node {
   bool use_scan_triggering_{false};
   double max_scan_age_{1.0};
   bool skip_stale_scans_{false};
-  bool use_tf_transforms_{false};
-  double tf_timeout_{0.1};
+  bool use_fixed_transforms_{true};
+  double tf_timeout_{1.0};
 
   // Laser configuration
   std::vector<LaserConfig> lasers_;
