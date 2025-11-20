@@ -147,8 +147,13 @@ Configure for **each laser** (laser0, laser1, laser2, ...):
 | `topic` | /scan_N | Input laser scan topic (**required**) |
 | `show` | true | Enable/disable this laser |
 | `r`, `g`, `b` | 255,0,0 | RGB color for visualization (0-255) |
+| `angle_min` | (global) | Optional: Override global angle_min for this laser (degrees) |
+| `angle_max` | (global) | Optional: Override global angle_max for this laser (degrees) |
 
-**Note:** `source_frame` is **automatically detected** from `scan->header.frame_id`
+**Notes:**
+- `source_frame` is **automatically detected** from `scan->header.frame_id`
+- `angle_min`/`angle_max` are optional - if not specified, uses global values
+- Useful for lasers at different orientations or requiring different FOV
 
 ### Performance & Synchronization
 
@@ -223,12 +228,17 @@ laser2:
   r: 0
   g: 255
   b: 0  # Green color
+  # Optional: custom angle filtering for this laser
+  angle_min: -10.0  # Override global angle_min
+  angle_max: 100.0  # Override global angle_max
 ```
 
 2. Add TF transform for the new laser:
 ```bash
 ros2 run tf2_ros static_transform_publisher X Y Z R P Y laser lidar_3
 ```
+
+**Note:** Per-laser `angle_min`/`angle_max` are optional. If not specified, the laser uses global values.
 
 ### Using Dynamic Transforms
 

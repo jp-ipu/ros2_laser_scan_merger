@@ -460,7 +460,7 @@ class ScanMerger : public rclcpp::Node {
     std::string prefix = "laser" + std::to_string(laser_index);
 
     // Declare per-laser parameters if not already declared
-    // Note: angle_min, angle_max, flip, inverse are now global parameters
+    // Note: angle_min, angle_max, flip, inverse can be per-laser or global
     // Note: source_frame is detected from scan->header.frame_id, not configured
     if (!this->has_parameter(prefix + ".topic")) {
       this->declare_parameter(prefix + ".topic",
@@ -475,9 +475,23 @@ class ScanMerger : public rclcpp::Node {
     auto& laser = lasers_[laser_index];
     laser.topic = this->get_parameter(prefix + ".topic").as_string();
 
-    // Use global parameters (shared by all lasers of the same type)
-    laser.angle_min = global_angle_min_;
-    laser.angle_max = global_angle_max_;
+    // Per-laser angle filtering (with fallback to global parameters)
+    // Check if per-laser angle_min/max are specified
+    if (this->has_parameter(prefix + ".angle_min")) {
+      laser.angle_min = static_cast<float>(
+          this->get_parameter(prefix + ".angle_min").as_double());
+    } else {
+      laser.angle_min = global_angle_min_;
+    }
+
+    if (this->has_parameter(prefix + ".angle_max")) {
+      laser.angle_max = static_cast<float>(
+          this->get_parameter(prefix + ".angle_max").as_double());
+    } else {
+      laser.angle_max = global_angle_max_;
+    }
+
+    // flip and inverse use global parameters (shared by all lasers of the same type)
     laser.flip = global_flip_;
     laser.inverse = global_inverse_;
 

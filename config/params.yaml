@@ -56,10 +56,11 @@
     # ============================================================================
     # These parameters are shared across all laser scanners since we assume
     # all lidars are the same model/type
+    # Note: Can be overridden per-laser by specifying laserN.angle_min/angle_max
 
-    # Angular Range Filtering (in degrees)
-    angle_min: -4.0                  # Minimum angle to include from all lasers
-    angle_max: 94.0                  # Maximum angle to include from all lasers
+    # Angular Range Filtering (in degrees) - DEFAULTS for all lasers
+    angle_min: -4.0                  # Minimum angle to include from all lasers (default)
+    angle_max: 94.0                  # Maximum angle to include from all lasers (default)
 
     # Processing Flags
     flip: false                      # Flip the laser scan data
@@ -110,6 +111,11 @@
     #   r: 0                           # Red channel (can vary for visualization)
     #   g: 255                         # Green channel
     #   b: 0                           # Blue channel (displays as green)
+    #
+    #   # Optional: Per-laser angle filtering (overrides global angle_min/max)
+    #   # Useful if this laser needs different angular range than others
+    #   # angle_min: -10.0             # Custom min angle for this laser (degrees)
+    #   # angle_max: 100.0             # Custom max angle for this laser (degrees)
 
     # ============================================================================
     # QoS Settings
@@ -232,7 +238,21 @@
 #   * topic - Input scan topic (MUST be different)
 #   * show - Enable/disable this laser (optional, default: true)
 #   * r, g, b - Visualization color (optional, for distinguishing lasers)
+#   * angle_min, angle_max - Optional per-laser angle filtering (overrides global)
 # - Source frame automatically detected from scan->header.frame_id (not configured)
+#
+# PER-LASER ANGLE FILTERING:
+# ==========================
+# Each laser can optionally specify its own angle_min/angle_max:
+#   laser0:
+#     topic: /front_lidar/scan
+#     angle_min: -10.0     # Custom range for front lidar
+#     angle_max: 100.0
+#   laser1:
+#     topic: /rear_lidar/scan
+#     # Uses global angle_min/max (no override specified)
+# This is useful when lasers are mounted at different orientations or
+# when you need different fields of view from each sensor.
 #
 # ANGLE UNITS:
 # ============
