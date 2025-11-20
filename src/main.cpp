@@ -40,7 +40,8 @@ struct CachedTransform {
 // Configuration for each laser scanner
 struct LaserConfig {
   std::string topic;
-  std::string source_frame;  // TF frame to transform from
+  // Note: source_frame is read from scan->header.frame_id, not configured
+  std::string detected_frame_id;  // Frame ID detected from scan header
   float angle_min{-181.0f};  // Minimum angle to include (degrees)
   float angle_max{181.0f};   // Maximum angle to include (degrees)
   uint8_t r{255};
@@ -96,15 +97,15 @@ class ScanMerger : public rclcpp::Node {
 
     for (size_t i = 0; i < lasers_.size(); i++) {
       RCLCPP_INFO(this->get_logger(),
-                  "  Laser %zu: topic=%s, frame=%s, enabled=%s", i,
-                  lasers_[i].topic.c_str(), lasers_[i].source_frame.c_str(),
+                  "  Laser %zu: topic=%s, enabled=%s", i,
+                  lasers_[i].topic.c_str(),
                   lasers_[i].show ? "true" : "false");
     }
 
-    // Cache transforms if using fixed mode
+    // Note: TF transforms will be cached on first scan reception if use_fixed_transforms is true
     if (use_fixed_transforms_) {
-      RCLCPP_INFO(this->get_logger(), "Caching fixed transforms...");
-      CacheAllTransforms();
+      RCLCPP_INFO(this->get_logger(),
+                  "Fixed transform mode: will cache TF on first scan from each laser");
     }
   }
 
@@ -123,34 +124,16 @@ class ScanMerger : public rclcpp::Node {
     }
   }
 
-  void CacheAllTransforms() {
-    // Wait a bit for TF tree to be ready
-    rclcpp::sleep_for(std::chrono::milliseconds(500));
-
-    for (size_t i = 0; i < lasers_.size(); i++) {
-      if (!lasers_[i].show) {
-        continue;
-      }
-
-      if (CacheTransform(i)) {
-        RCLCPP_INFO(this->get_logger(), "  ✓ Cached transform for laser %zu (%s -> %s)",
-                    i, lasers_[i].source_frame.c_str(), cloud_frame_id_.c_str());
-      } else {
-        RCLCPP_WARN(this->get_logger(),
-                    "  ✗ Failed to cache transform for laser %zu (%s -> %s)",
-                    i, lasers_[i].source_frame.c_str(), cloud_frame_id_.c_str());
-        RCLCPP_WARN(this->get_logger(),
-                    "    Will attempt dynamic lookup at runtime");
-      }
-    }
-  }
-
   bool CacheTransform(size_t laser_idx) {
     auto& laser = lasers_[laser_idx];
 
+    if (laser.detected_frame_id.empty()) {
+      return false;  // Frame not yet detected from scan
+    }
+
     try {
       auto transform = tf_buffer_.lookupTransform(
-          cloud_frame_id_, laser.source_frame, tf2::TimePointZero,
+          cloud_frame_id_, laser.detected_frame_id, tf2::TimePointZero,
           tf2::durationFromSec(tf_timeout_));
 
       // Extract translation
@@ -190,9 +173,32 @@ class ScanMerger : public rclcpp::Node {
     }
 
     std::lock_guard<std::mutex> lock(lasers_mutex_);
-    lasers_[laser_index].last_scan = msg;
-    lasers_[laser_index].last_update_time = this->now();
-    lasers_[laser_index].data_received = true;
+    auto& laser = lasers_[laser_index];
+
+    // Detect frame_id from scan header on first reception
+    if (laser.detected_frame_id.empty()) {
+      laser.detected_frame_id = msg->header.frame_id;
+      RCLCPP_INFO(this->get_logger(),
+                  "Laser %zu: detected frame_id '%s' from scan header",
+                  laser_index, laser.detected_frame_id.c_str());
+
+      // Cache transform if using fixed mode
+      if (use_fixed_transforms_ && laser.show) {
+        if (CacheTransform(laser_index)) {
+          RCLCPP_INFO(this->get_logger(),
+                      "  ✓ Cached transform: %s -> %s",
+                      laser.detected_frame_id.c_str(), cloud_frame_id_.c_str());
+        } else {
+          RCLCPP_WARN(this->get_logger(),
+                      "  ✗ Failed to cache transform: %s -> %s (will use dynamic lookup)",
+                      laser.detected_frame_id.c_str(), cloud_frame_id_.c_str());
+        }
+      }
+    }
+
+    laser.last_scan = msg;
+    laser.last_update_time = this->now();
+    laser.data_received = true;
 
     // If using scan-triggered mode, check if we should publish
     if (use_scan_triggering_) {
@@ -314,7 +320,7 @@ class ScanMerger : public rclcpp::Node {
         RCLCPP_WARN_THROTTLE(
             this->get_logger(), *this->get_clock(), 1000,
             "TF lookup failed for laser %zu (%s -> %s), skipping scan",
-            laser_idx, laser.source_frame.c_str(), cloud_frame_id_.c_str());
+            laser_idx, laser.detected_frame_id.c_str(), cloud_frame_id_.c_str());
         return;
       }
     }
@@ -377,9 +383,13 @@ class ScanMerger : public rclcpp::Node {
   bool LookupTransform(size_t laser_idx, CachedTransform& transform) {
     const auto& laser = lasers_[laser_idx];
 
+    if (laser.detected_frame_id.empty()) {
+      return false;  // Frame not yet detected from scan
+    }
+
     try {
       auto tf_transform = tf_buffer_.lookupTransform(
-          cloud_frame_id_, laser.source_frame, tf2::TimePointZero,
+          cloud_frame_id_, laser.detected_frame_id, tf2::TimePointZero,
           tf2::durationFromSec(tf_timeout_));
 
       // Extract translation
@@ -413,7 +423,7 @@ class ScanMerger : public rclcpp::Node {
 
   void InitializeParams() {
     this->declare_parameter("pointCloudTopic", "cloud_in");
-    this->declare_parameter("pointCloutFrameId", "laser");
+    this->declare_parameter("destination_frame", "laser");
     this->declare_parameter("num_lasers", 2);
     this->declare_parameter("publish_rate", 30.0);
 
@@ -436,7 +446,7 @@ class ScanMerger : public rclcpp::Node {
 
   void RefreshParams() {
     cloud_topic_ = this->get_parameter("pointCloudTopic").as_string();
-    cloud_frame_id_ = this->get_parameter("pointCloutFrameId").as_string();
+    cloud_frame_id_ = this->get_parameter("destination_frame").as_string();
     int num_lasers = this->get_parameter("num_lasers").as_int();
     publish_rate_ = this->get_parameter("publish_rate").as_double();
 
@@ -472,11 +482,10 @@ class ScanMerger : public rclcpp::Node {
 
     // Declare per-laser parameters if not already declared
     // Note: angle_min, angle_max, flip, inverse are now global parameters
+    // Note: source_frame is detected from scan->header.frame_id, not configured
     if (!this->has_parameter(prefix + ".topic")) {
       this->declare_parameter(prefix + ".topic",
                               "/scan_" + std::to_string(laser_index));
-      this->declare_parameter(prefix + ".source_frame",
-                              "laser_" + std::to_string(laser_index));
       this->declare_parameter(prefix + ".r", 255);
       this->declare_parameter(prefix + ".g", 0);
       this->declare_parameter(prefix + ".b", 0);
@@ -486,7 +495,6 @@ class ScanMerger : public rclcpp::Node {
     // Get per-laser parameters
     auto& laser = lasers_[laser_index];
     laser.topic = this->get_parameter(prefix + ".topic").as_string();
-    laser.source_frame = this->get_parameter(prefix + ".source_frame").as_string();
 
     // Use global parameters (shared by all lasers of the same type)
     laser.angle_min = global_angle_min_;

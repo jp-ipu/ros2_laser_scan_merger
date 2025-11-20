@@ -49,7 +49,7 @@
     # ============================================================================
     # Output topics
     pointCloudTopic: cloud_in        # Merged point cloud output topic
-    pointCloutFrameId: laser         # Frame ID for the merged point cloud (TF target frame)
+    destination_frame: laser         # Target frame for merged cloud (all scans transformed to this frame)
 
     # ============================================================================
     # Global Laser Parameters (applies to all lasers of the same type)
@@ -71,8 +71,7 @@
     laser0:
       # Topic Configuration
       topic: /lidar_1/scan            # Input laser scan topic
-      source_frame: lidar_1           # TF frame to transform from
-                                       # The TF tree must have: pointCloutFrameId -> source_frame
+      # Note: source frame is automatically detected from scan->header.frame_id
 
       # Enable/disable this laser in the merged output
       show: true
@@ -88,7 +87,7 @@
     laser1:
       # Topic Configuration
       topic: /lidar_2/scan            # Input laser scan topic
-      source_frame: lidar_2           # TF frame to transform from
+      # Note: source frame is automatically detected from scan->header.frame_id
 
       # Enable/disable this laser in the merged output
       show: true
@@ -106,7 +105,7 @@
     #
     # laser2:
     #   topic: /lidar_3/scan           # Input topic (UNIQUE per laser)
-    #   source_frame: lidar_3          # TF frame (UNIQUE per laser)
+    #   # Note: source frame detected from scan->header.frame_id
     #   show: true                     # Enable/disable (can vary per laser)
     #   r: 0                           # Red channel (can vary for visualization)
     #   g: 255                         # Green channel
@@ -179,26 +178,28 @@
 #
 # TF TREE REQUIREMENTS:
 # ====================
-# You MUST publish TF transforms from your robot's TF tree:
+# You MUST publish TF transforms from your robot's TF tree.
+# The node automatically detects source frames from scan->header.frame_id
 #
 #   base_link (or your robot frame)
-#       ├─> laser (pointCloutFrameId) - Target frame for merged output
-#       │     ├─> lidar_1 (laser0.source_frame)
-#       │     └─> lidar_2 (laser1.source_frame)
+#       ├─> laser (destination_frame) - Target frame for merged output
+#       │     ├─> lidar_1 (from scan header.frame_id)
+#       │     └─> lidar_2 (from scan header.frame_id)
 #
 # Example using static_transform_publisher:
 #   ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link laser
 #   ros2 run tf2_ros static_transform_publisher -0.3 -0.475 0.176 0 0 0 laser lidar_1
 #   ros2 run tf2_ros static_transform_publisher 0.3 0.475 0.176 0 0 3.14159 laser lidar_2
 #
+# Note: Frame IDs (lidar_1, lidar_2) must match what's published in scan->header.frame_id
 # Or publish from your robot's URDF/robot_state_publisher
 #
 # PERFORMANCE MODES:
 # ==================
 # 1. FIXED TRANSFORMS (DEFAULT - RECOMMENDED):
 #    use_fixed_transforms: true
-#    - Caches TF transforms at startup
-#    - Extremely fast (no TF lookups during operation)
+#    - Caches TF transforms on first scan from each laser
+#    - Extremely fast (no TF lookups after initial caching)
 #    - Best for robots with fixed sensor positions
 #    - ~1000x faster than dynamic lookups
 #
@@ -229,9 +230,9 @@
 # - Global parameters (shared): angle_min, angle_max, flip, inverse
 # - Per-laser parameters (unique):
 #   * topic - Input scan topic (MUST be different)
-#   * source_frame - TF frame (MUST be different for different positions)
 #   * show - Enable/disable this laser (optional, default: true)
 #   * r, g, b - Visualization color (optional, for distinguishing lasers)
+# - Source frame automatically detected from scan->header.frame_id (not configured)
 #
 # ANGLE UNITS:
 # ============
