@@ -56,6 +56,11 @@ def generate_launch_description():
         default_value="false",
         description="Use simulation time (set to true when playing back bag files)",
     )
+    pointcloud_topic_arg = DeclareLaunchArgument(
+        "cloud_topic",
+        default_value="merged_lidar_cloud",
+        description="Merged point cloud output topic",
+    )
 
     # =========================================================================
     # Launch Configurations
@@ -63,6 +68,7 @@ def generate_launch_description():
 
     params_file = LaunchConfiguration("params_file")
     use_sim_time = LaunchConfiguration("use_sim_time")
+    cloud_topic = LaunchConfiguration("cloud_topic")
 
     # =========================================================================
     # Nodes
@@ -96,6 +102,9 @@ def generate_launch_description():
                 "use_sim_time": use_sim_time,
             },
         ],
+        remappings=[
+            ("cloud_in", cloud_topic),
+        ],
     )
 
     # =========================================================================
@@ -107,6 +116,7 @@ def generate_launch_description():
             # Launch arguments
             params_file_arg,
             use_sim_time_arg,
+            pointcloud_topic_arg,
             # Nodes
             merger_node,
             pc_to_scan_node,
