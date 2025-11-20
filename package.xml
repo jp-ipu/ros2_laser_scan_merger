@@ -3,9 +3,9 @@
 <package format="3">
   <name>ros2_laser_scan_merger</name>
   <version>1.0.0</version>
-  <description>A Package to combine several laser scan value</description>
-  <maintainer email="michaeljonathan664@gmail.com">mich1342</maintainer>
-  <license>Apache Lisence 2.0</license>
+  <description>A Package to combine several laser scans into a single merged output</description>
+  <maintainer email="info@ipu.dk">IPU Dev Team</maintainer>
+  <license>Apache License 2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
