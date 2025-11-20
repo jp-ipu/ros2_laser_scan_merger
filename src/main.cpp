@@ -5,6 +5,7 @@
 //
 //   Modified to support N laser scans (dynamic number of inputs)
 //   Refactored for best practices, thread safety, and proper scan synchronization
+//   Improved based on ira_laser_tools analysis
 //
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -14,12 +15,15 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 #include <array>
 #include <cmath>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -28,27 +32,29 @@ namespace laser_scan_merger {
 // Configuration for each laser scanner
 struct LaserConfig {
   std::string topic;
+  std::string frame_id;  // TF frame ID (optional, for TF mode)
   float x_offset{0.0f};
   float y_offset{0.0f};
   float z_offset{0.0f};
-  float alpha{0.0f};        // Rotation angle in degrees
-  float angle_min{-181.0f}; // Minimum angle to include (degrees)
-  float angle_max{181.0f};  // Maximum angle to include (degrees)
+  float alpha{0.0f};         // Rotation angle in degrees
+  float angle_min{-181.0f};  // Minimum angle to include (degrees)
+  float angle_max{181.0f};   // Maximum angle to include (degrees)
   uint8_t r{255};
   uint8_t g{0};
   uint8_t b{0};
-  bool show{true};    // Enable/disable this laser
-  bool flip{false};   // Flip the scan data
-  bool inverse{false}; // Inverse the angle filtering logic
+  bool show{true};     // Enable/disable this laser
+  bool flip{false};    // Flip the scan data
+  bool inverse{false};  // Inverse the angle filtering logic
 
   sensor_msgs::msg::LaserScan::SharedPtr last_scan;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr subscriber;
   rclcpp::Time last_update_time;
+  bool data_received{false};  // For synchronization
 };
 
 class ScanMerger : public rclcpp::Node {
  public:
-  ScanMerger() : Node("ros2_laser_scan_merger") {
+  ScanMerger() : Node("ros2_laser_scan_merger"), tf_buffer_(this->get_clock()), tf_listener_(tf_buffer_) {
     InitializeParams();
     RefreshParams();
     SetupSubscribers();
@@ -56,13 +62,22 @@ class ScanMerger : public rclcpp::Node {
     point_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
         cloud_topic_, rclcpp::SensorDataQoS());
 
-    // Create timer for synchronized publishing
-    publish_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(33),  // ~30Hz default
-        std::bind(&ScanMerger::PublishMergedCloud, this));
+    // Create timer for publishing
+    if (!use_scan_triggering_) {
+      publish_timer_ = this->create_wall_timer(
+          std::chrono::milliseconds(static_cast<int>(1000.0 / publish_rate_)),
+          std::bind(&ScanMerger::PublishMergedCloud, this));
+    }
 
     RCLCPP_INFO(this->get_logger(), "Laser Scan Merger initialized with %zu laser(s)",
                 lasers_.size());
+    RCLCPP_INFO(this->get_logger(), "  Use TF transforms: %s", use_tf_transforms_ ? "true" : "false");
+    RCLCPP_INFO(this->get_logger(), "  Scan synchronization: %s",
+                require_all_scans_ ? "enabled (wait for all)" : "disabled");
+    RCLCPP_INFO(this->get_logger(), "  Publishing mode: %s",
+                use_scan_triggering_ ? "scan-triggered" : "timer-based");
+    RCLCPP_INFO(this->get_logger(), "  Max scan age: %.2f seconds", max_scan_age_);
+
     for (size_t i = 0; i < lasers_.size(); i++) {
       RCLCPP_INFO(this->get_logger(), "  Laser %zu: topic=%s, enabled=%s", i,
                   lasers_[i].topic.c_str(), lasers_[i].show ? "true" : "false");
@@ -93,6 +108,32 @@ class ScanMerger : public rclcpp::Node {
     std::lock_guard<std::mutex> lock(lasers_mutex_);
     lasers_[laser_index].last_scan = msg;
     lasers_[laser_index].last_update_time = this->now();
+    lasers_[laser_index].data_received = true;
+
+    // If using scan-triggered mode, check if we should publish
+    if (use_scan_triggering_) {
+      if (require_all_scans_) {
+        // Check if all enabled lasers have received data
+        bool all_received = true;
+        for (const auto& laser : lasers_) {
+          if (laser.show && !laser.data_received) {
+            all_received = false;
+            break;
+          }
+        }
+
+        if (all_received) {
+          PublishMergedCloud();
+          // Reset flags for next cycle
+          for (auto& laser : lasers_) {
+            laser.data_received = false;
+          }
+        }
+      } else {
+        // Publish whenever any scan arrives
+        PublishMergedCloud();
+      }
+    }
   }
 
   void PublishMergedCloud() {
@@ -100,30 +141,64 @@ class ScanMerger : public rclcpp::Node {
 
     pcl::PointCloud<pcl::PointXYZRGB> cloud;
     rclcpp::Time latest_timestamp = this->now();
+    rclcpp::Time oldest_timestamp = this->now();
     bool has_valid_scan = false;
+    int stale_scan_count = 0;
 
     // Process each laser scanner
     for (size_t laser_idx = 0; laser_idx < lasers_.size(); laser_idx++) {
       const auto& laser = lasers_[laser_idx];
 
-      if (!laser.show || !laser.last_scan ||
-          laser.last_scan->ranges.empty()) {
+      if (!laser.show || !laser.last_scan || laser.last_scan->ranges.empty()) {
         continue;
+      }
+
+      // Check scan age
+      rclcpp::Duration scan_age = this->now() - laser.last_update_time;
+      if (scan_age.seconds() > max_scan_age_) {
+        stale_scan_count++;
+        if (skip_stale_scans_) {
+          RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                               "Skipping stale scan from laser %zu (age: %.3f s)", laser_idx,
+                               scan_age.seconds());
+          continue;
+        }
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                             "Using stale scan from laser %zu (age: %.3f s)", laser_idx,
+                             scan_age.seconds());
       }
 
       has_valid_scan = true;
 
-      // Track the most recent scan timestamp
+      // Track timestamps
       rclcpp::Time scan_time(laser.last_scan->header.stamp);
       if (scan_time > latest_timestamp) {
         latest_timestamp = scan_time;
       }
+      if (!has_valid_scan || scan_time < oldest_timestamp) {
+        oldest_timestamp = scan_time;
+      }
 
-      ProcessLaserScan(laser, cloud);
+      // Process scan with either TF or manual transforms
+      if (use_tf_transforms_) {
+        ProcessLaserScanWithTF(laser, laser_idx, cloud);
+      } else {
+        ProcessLaserScanManual(laser, cloud);
+      }
     }
 
     if (!has_valid_scan) {
-      return; // No data to publish
+      return;  // No data to publish
+    }
+
+    // Warn if scans have large timestamp spread
+    if (require_all_scans_) {
+      rclcpp::Duration timestamp_spread = latest_timestamp - oldest_timestamp;
+      if (timestamp_spread.seconds() > 0.1) {  // 100ms threshold
+        RCLCPP_WARN_THROTTLE(
+            this->get_logger(), *this->get_clock(), 5000,
+            "Large timestamp spread in merged scans: %.3f seconds", timestamp_spread.seconds());
+      }
     }
 
     // Publish the merged point cloud
@@ -133,16 +208,115 @@ class ScanMerger : public rclcpp::Node {
     pc2_msg->header.stamp = latest_timestamp;
     pc2_msg->is_dense = false;
     point_cloud_pub_->publish(*pc2_msg);
+
+    if (stale_scan_count > 0) {
+      RCLCPP_DEBUG(this->get_logger(), "Published with %d stale scans", stale_scan_count);
+    }
   }
 
-  void ProcessLaserScan(const LaserConfig& laser,
-                        pcl::PointCloud<pcl::PointXYZRGB>& cloud) const {
+  void ProcessLaserScanWithTF(const LaserConfig& laser, size_t laser_idx,
+                               pcl::PointCloud<pcl::PointXYZRGB>& cloud) {
+    const auto& scan = laser.last_scan;
+
+    // Determine source frame
+    std::string source_frame = laser.frame_id.empty() ? scan->header.frame_id : laser.frame_id;
+
+    // Try to get transform
+    geometry_msgs::msg::TransformStamped transform;
+    try {
+      transform = tf_buffer_.lookupTransform(
+          cloud_frame_id_, source_frame, tf2::TimePointZero,
+          tf2::durationFromSec(tf_timeout_));
+    } catch (const tf2::TransformException& ex) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                           "TF lookup failed for laser %zu: %s. Falling back to manual transform.",
+                           laser_idx, ex.what());
+      ProcessLaserScanManual(laser, cloud);
+      return;
+    }
+
+    // Extract rotation and translation from TF
+    float tx = transform.transform.translation.x;
+    float ty = transform.transform.translation.y;
+    float tz = transform.transform.translation.z;
+
+    // Convert quaternion to rotation matrix (simplified for 2D case)
+    // For full 3D support, would need proper quaternion to matrix conversion
+    float qx = transform.transform.rotation.x;
+    float qy = transform.transform.rotation.y;
+    float qz = transform.transform.rotation.z;
+    float qw = transform.transform.rotation.w;
+
+    // Rotation matrix elements (for 3D rotation)
+    float r00 = 1 - 2 * (qy * qy + qz * qz);
+    float r01 = 2 * (qx * qy - qz * qw);
+    float r02 = 2 * (qx * qz + qy * qw);
+    float r10 = 2 * (qx * qy + qz * qw);
+    float r11 = 1 - 2 * (qx * qx + qz * qz);
+    float r12 = 2 * (qy * qz - qx * qw);
+    float r20 = 2 * (qx * qz - qy * qw);
+    float r21 = 2 * (qy * qz + qx * qw);
+    float r22 = 1 - 2 * (qx * qx + qy * qy);
+
+    // Process scan points
+    float angle_min = scan->angle_min;
+    float angle_max = scan->angle_max;
+    if (angle_min > angle_max) {
+      std::swap(angle_min, angle_max);
+    }
+
+    const float filter_min_rad = laser.angle_min * M_PI / 180.0f;
+    const float filter_max_rad = laser.angle_max * M_PI / 180.0f;
+
+    size_t num_points = scan->ranges.size();
+    float current_angle = angle_min;
+
+    for (size_t i = 0; i < num_points; ++i) {
+      size_t index = laser.flip ? (num_points - 1 - i) : i;
+      float range = scan->ranges[index];
+
+      if (!std::isfinite(range) || range <= 0.0f) {
+        current_angle += scan->angle_increment;
+        continue;
+      }
+
+      // Apply angle filtering
+      bool outside_range =
+          (current_angle < filter_min_rad) || (current_angle > filter_max_rad);
+      bool include_point =
+          (outside_range && laser.inverse) || (!outside_range && !laser.inverse);
+
+      if (!include_point) {
+        current_angle += scan->angle_increment;
+        continue;
+      }
+
+      // Convert polar to Cartesian (in laser frame)
+      float local_x = range * std::cos(current_angle);
+      float local_y = range * std::sin(current_angle);
+      float local_z = 0.0f;
+
+      // Apply 3D TF transform
+      pcl::PointXYZRGB point;
+      point.x = r00 * local_x + r01 * local_y + r02 * local_z + tx;
+      point.y = r10 * local_x + r11 * local_y + r12 * local_z + ty;
+      point.z = r20 * local_x + r21 * local_y + r22 * local_z + tz;
+      point.r = laser.r;
+      point.g = laser.g;
+      point.b = laser.b;
+
+      cloud.points.push_back(point);
+      current_angle += scan->angle_increment;
+    }
+  }
+
+  void ProcessLaserScanManual(const LaserConfig& laser,
+                               pcl::PointCloud<pcl::PointXYZRGB>& cloud) const {
     const auto& scan = laser.last_scan;
 
     float angle_min = scan->angle_min;
     float angle_max = scan->angle_max;
 
-    // Handle reversed angle ranges
     if (angle_min > angle_max) {
       std::swap(angle_min, angle_max);
     }
@@ -160,13 +334,12 @@ class ScanMerger : public rclcpp::Node {
       size_t index = laser.flip ? (num_points - 1 - i) : i;
       float range = scan->ranges[index];
 
-      // Skip invalid ranges
       if (!std::isfinite(range) || range <= 0.0f) {
         current_angle += scan->angle_increment;
         continue;
       }
 
-      // Apply angle filtering (before rotation)
+      // Apply angle filtering
       bool outside_range =
           (current_angle < filter_min_rad) || (current_angle > filter_max_rad);
       bool include_point =
@@ -181,7 +354,7 @@ class ScanMerger : public rclcpp::Node {
       float local_x = range * std::cos(current_angle);
       float local_y = range * std::sin(current_angle);
 
-      // Apply 2D rotation and translation to output frame
+      // Apply 2D rotation and translation
       pcl::PointXYZRGB point;
       point.x = local_x * cos_alpha - local_y * sin_alpha + laser.x_offset;
       point.y = local_x * sin_alpha + local_y * cos_alpha + laser.y_offset;
@@ -200,22 +373,31 @@ class ScanMerger : public rclcpp::Node {
     this->declare_parameter("pointCloutFrameId", "laser");
     this->declare_parameter("num_lasers", 2);
     this->declare_parameter("publish_rate", 30.0);
+
+    // Synchronization parameters
+    this->declare_parameter("require_all_scans", false);
+    this->declare_parameter("use_scan_triggering", false);
+    this->declare_parameter("max_scan_age", 1.0);
+    this->declare_parameter("skip_stale_scans", false);
+
+    // TF parameters
+    this->declare_parameter("use_tf_transforms", false);
+    this->declare_parameter("tf_timeout", 0.1);
   }
 
   void RefreshParams() {
     cloud_topic_ = this->get_parameter("pointCloudTopic").as_string();
     cloud_frame_id_ = this->get_parameter("pointCloutFrameId").as_string();
     int num_lasers = this->get_parameter("num_lasers").as_int();
-    double publish_rate = this->get_parameter("publish_rate").as_double();
+    publish_rate_ = this->get_parameter("publish_rate").as_double();
 
-    // Update publish timer rate if changed
-    if (publish_rate > 0.0) {
-      int period_ms = static_cast<int>(1000.0 / publish_rate);
-      publish_timer_->cancel();
-      publish_timer_ = this->create_wall_timer(
-          std::chrono::milliseconds(period_ms),
-          std::bind(&ScanMerger::PublishMergedCloud, this));
-    }
+    require_all_scans_ = this->get_parameter("require_all_scans").as_bool();
+    use_scan_triggering_ = this->get_parameter("use_scan_triggering").as_bool();
+    max_scan_age_ = this->get_parameter("max_scan_age").as_double();
+    skip_stale_scans_ = this->get_parameter("skip_stale_scans").as_bool();
+
+    use_tf_transforms_ = this->get_parameter("use_tf_transforms").as_bool();
+    tf_timeout_ = this->get_parameter("tf_timeout").as_double();
 
     // Resize laser vector if needed
     if (lasers_.size() != static_cast<size_t>(num_lasers)) {
@@ -233,8 +415,8 @@ class ScanMerger : public rclcpp::Node {
 
     // Declare parameters if not already declared
     if (!this->has_parameter(prefix + ".topic")) {
-      this->declare_parameter(prefix + ".topic",
-                              "/scan_" + std::to_string(laser_index));
+      this->declare_parameter(prefix + ".topic", "/scan_" + std::to_string(laser_index));
+      this->declare_parameter(prefix + ".frame_id", "");  // Empty = use scan frame_id
       this->declare_parameter(prefix + ".x_offset", 0.0);
       this->declare_parameter(prefix + ".y_offset", 0.0);
       this->declare_parameter(prefix + ".z_offset", 0.0);
@@ -252,14 +434,15 @@ class ScanMerger : public rclcpp::Node {
     // Get parameters
     auto& laser = lasers_[laser_index];
     laser.topic = this->get_parameter(prefix + ".topic").as_string();
+    laser.frame_id = this->get_parameter(prefix + ".frame_id").as_string();
     laser.x_offset = static_cast<float>(
         this->get_parameter(prefix + ".x_offset").as_double());
     laser.y_offset = static_cast<float>(
         this->get_parameter(prefix + ".y_offset").as_double());
     laser.z_offset = static_cast<float>(
         this->get_parameter(prefix + ".z_offset").as_double());
-    laser.alpha =
-        static_cast<float>(this->get_parameter(prefix + ".alpha").as_double());
+    laser.alpha = static_cast<float>(
+        this->get_parameter(prefix + ".alpha").as_double());
     laser.angle_min = static_cast<float>(
         this->get_parameter(prefix + ".angle_min").as_double());
     laser.angle_max = static_cast<float>(
@@ -277,15 +460,31 @@ class ScanMerger : public rclcpp::Node {
     laser.inverse = this->get_parameter(prefix + ".inverse").as_bool();
   }
 
+  // Configuration
   std::string cloud_topic_;
   std::string cloud_frame_id_;
+  double publish_rate_{30.0};
+  bool require_all_scans_{false};
+  bool use_scan_triggering_{false};
+  double max_scan_age_{1.0};
+  bool skip_stale_scans_{false};
+  bool use_tf_transforms_{false};
+  double tf_timeout_{0.1};
+
+  // Laser configuration
   std::vector<LaserConfig> lasers_;
   std::mutex lasers_mutex_;
+
+  // Publishers and timers
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud_pub_;
   rclcpp::TimerBase::SharedPtr publish_timer_;
+
+  // TF2
+  tf2_ros::Buffer tf_buffer_;
+  tf2_ros::TransformListener tf_listener_;
 };
 
-} // namespace laser_scan_merger
+}  // namespace laser_scan_merger
 
 int main(int argc, char* argv[]) {
   rclcpp::init(argc, argv);

@@ -26,6 +26,8 @@ find_package(rcl_interfaces REQUIRED)
 find_package(rcutils REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system)
 find_package(PCL REQUIRED)
 
@@ -43,6 +45,8 @@ ament_target_dependencies(ros2_laser_scan_merger
   rcutils
   tf2_geometry_msgs
   geometry_msgs
+  tf2
+  tf2_ros
 )
 install(DIRECTORY
   launch
