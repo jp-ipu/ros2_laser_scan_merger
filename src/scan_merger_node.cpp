@@ -97,7 +97,7 @@ void ScanMerger::initialize_params() {
 void ScanMerger::refresh_params() {
   cloud_topic_ = this->get_parameter("pointCloudTopic").as_string();
   cloud_frame_id_ = this->get_parameter("destination_frame").as_string();
-  const int num_lasers = this->get_parameter("num_lasers").as_int();
+  const int num_lasers = static_cast<int>(this->get_parameter("num_lasers").as_int());
   publish_rate_ = this->get_parameter("publish_rate").as_double();
 
   require_all_scans_ = this->get_parameter("require_all_scans").as_bool();
@@ -182,9 +182,9 @@ void ScanMerger::load_laser_params(const int laser_index) {
   laser.inverse = global_inverse_;
 
   // Color parameters
-  const int r_val = this->get_parameter(prefix + ".r").as_int();
-  const int g_val = this->get_parameter(prefix + ".g").as_int();
-  const int b_val = this->get_parameter(prefix + ".b").as_int();
+  const int r_val = static_cast<int>(this->get_parameter(prefix + ".r").as_int());
+  const int g_val = static_cast<int>(this->get_parameter(prefix + ".g").as_int());
+  const int b_val = static_cast<int>(this->get_parameter(prefix + ".b").as_int());
   laser.r = static_cast<uint8_t>(r_val);
   laser.g = static_cast<uint8_t>(g_val);
   laser.b = static_cast<uint8_t>(b_val);
@@ -210,10 +210,10 @@ bool ScanMerger::cache_transform(const size_t laser_idx) {
 
     // Convert quaternion to transform using testable math function
     laser.cached_transform = math::quaternion_to_transform(
-        tf_msg.transform.rotation.x, tf_msg.transform.rotation.y,
-        tf_msg.transform.rotation.z, tf_msg.transform.rotation.w,
-        tf_msg.transform.translation.x, tf_msg.transform.translation.y,
-        tf_msg.transform.translation.z);
+        static_cast<float>(tf_msg.transform.rotation.x), static_cast<float>(tf_msg.transform.rotation.y),
+        static_cast<float>(tf_msg.transform.rotation.z), static_cast<float>(tf_msg.transform.rotation.w),
+        static_cast<float>(tf_msg.transform.translation.x), static_cast<float>(tf_msg.transform.translation.y),
+        static_cast<float>(tf_msg.transform.translation.z));
 
     return true;
   } catch (const tf2::TransformException& ex) {
@@ -237,10 +237,10 @@ bool ScanMerger::lookup_transform(const size_t laser_idx,
 
     // Convert quaternion to transform using testable math function
     transform = math::quaternion_to_transform(
-        tf_msg.transform.rotation.x, tf_msg.transform.rotation.y,
-        tf_msg.transform.rotation.z, tf_msg.transform.rotation.w,
-        tf_msg.transform.translation.x, tf_msg.transform.translation.y,
-        tf_msg.transform.translation.z);
+        static_cast<float>(tf_msg.transform.rotation.x), static_cast<float>(tf_msg.transform.rotation.y),
+        static_cast<float>(tf_msg.transform.rotation.z), static_cast<float>(tf_msg.transform.rotation.w),
+        static_cast<float>(tf_msg.transform.translation.x), static_cast<float>(tf_msg.transform.translation.y),
+        static_cast<float>(tf_msg.transform.translation.z));
 
     return true;
   } catch (const tf2::TransformException& ex) {
@@ -462,14 +462,14 @@ void ScanMerger::process_laser_scan(const LaserConfig& laser,
   }
 
   // Convert ROS2 LaserScan to testable ScanData
-  ScanData scan_data;
+  ScanData scan_data{};
   scan_data.ranges = scan->ranges;
   scan_data.angle_min = scan->angle_min;
   scan_data.angle_max = scan->angle_max;
   scan_data.angle_increment = scan->angle_increment;
 
   // Configure processing
-  ScanProcessingConfig config;
+  ScanProcessingConfig config{};
   config.angle_min_deg = laser.angle_min;
   config.angle_max_deg = laser.angle_max;
   config.flip = laser.flip;
