@@ -61,6 +61,11 @@ def generate_launch_description():
         default_value="merged_lidar_cloud",
         description="Merged point cloud output topic",
     )
+    scan_topic_arg = DeclareLaunchArgument(
+        "scan_topic",
+        default_value="merged/scan",
+        description="Merged laser scan output topic",
+    )
 
     # =========================================================================
     # Launch Configurations
@@ -69,6 +74,7 @@ def generate_launch_description():
     params_file = LaunchConfiguration("params_file")
     use_sim_time = LaunchConfiguration("use_sim_time")
     cloud_topic = LaunchConfiguration("cloud_topic")
+    scan_topic = LaunchConfiguration("scan_topic")
 
     # =========================================================================
     # Nodes
@@ -104,6 +110,7 @@ def generate_launch_description():
         ],
         remappings=[
             ("cloud_in", cloud_topic),
+            ("scan", scan_topic),
         ],
     )
 
@@ -117,6 +124,7 @@ def generate_launch_description():
             params_file_arg,
             use_sim_time_arg,
             pointcloud_topic_arg,
+            scan_topic_arg,
             # Nodes
             merger_node,
             pc_to_scan_node,

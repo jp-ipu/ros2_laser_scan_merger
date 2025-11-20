@@ -14,7 +14,6 @@
     # ============================================================================
     # General Settings
     # ============================================================================
-    use_sim_time: false  # Set to true when using simulation time (e.g., from bag files)
     publish_rate: 30.0   # Publishing rate in Hz for merged point cloud
 
     # ============================================================================
@@ -48,8 +47,8 @@
     # Topic Configuration
     # ============================================================================
     # Output topics
-    pointCloudTopic: cloud_in        # Merged point cloud output topic
-    destination_frame: laser         # Target frame for merged cloud (all scans transformed to this frame)
+    cloud_topic: merged_lidar_cloud # Merged point cloud output topic
+    cloud_frame: laser              # Target frame for merged cloud (all scans transformed to this frame)
 
     # ============================================================================
     # Global Laser Parameters (applies to all lasers of the same type)
@@ -132,11 +131,6 @@
 
 /pointcloud_to_laserscan:
   ros__parameters:
-    # ============================================================================
-    # General Settings
-    # ============================================================================
-    use_sim_time: false  # Set to true when using simulation time
-
     # ============================================================================
     # Frame and Transform Settings
     # ============================================================================
